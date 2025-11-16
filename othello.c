@@ -342,7 +342,7 @@ enum stone_color read_stone_at(int x, int y)
 //指定した色のコマを置く
 void place(int x, int y, enum stone_color sc)
 {
-    get_Stone_instance(sc)->stone[x] |= (1 << y);;
+    get_Stone_instance(sc)->stone[x] |= (1 << y);
 }
 
 //指定した座標のコマを消す
