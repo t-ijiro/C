@@ -570,7 +570,7 @@ int search_placeable(enum stone_color sc)
 //どっちも置けない場合は終わり
 int is_game_over(enum stone_color sc1, enum stone_color sc2)
 {
-    return (!get_Stone_instance(sc1)->can_place & !get_Stone_instance(sc1)->can_place);
+    return (!get_Stone_instance(sc1)->can_place & !get_Stone_instance(sc2)->can_place);
 }
 /***********************************************************************/
 
