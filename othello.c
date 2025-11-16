@@ -223,7 +223,7 @@ void init_display(void)
 
 /********************************** マトリックスLED ************************************/
 //指定した列の赤緑データをマトリックスLEDに出力
-void col_out(int cn, unsigned int rg_data)
+void col_out(int col, unsigned int rg_data)
 {
 	int i;
 
@@ -245,7 +245,7 @@ void col_out(int cn, unsigned int rg_data)
 
 	LATCH_OUT;                //ラッチ出力
 
-	COL_EN = 1 << cn;         //点灯列指定
+	COL_EN = 1 << col;         //点灯列指定
 }
 /******************************************************************************************/
 
@@ -507,11 +507,11 @@ int is_placeable(int x, int y, enum stone_color sc)
 {
     unsigned char flag;
 
-    if(read_stone_at(x, y) != stone_black) return 0;　//何かおいてあったらだめ
+    if(read_stone_at(x, y) != stone_black) return 0;  //何かおいてあったらだめ
 
     flag = make_flip_dir_flag(x, y, sc);              //8方向フラグ作成
 
-    return (flag != 0x00);　　　　　　　　　　　　　　　 //flag != 0x00なら少なくとも1方向は挟める
+    return (flag != 0x00);                            //flag != 0x00なら少なくとも1方向は挟める
 }
 
 //8方向フラグをつかって相手のコマをひっくり返す
@@ -542,7 +542,7 @@ void flip_stones(unsigned char flag, int x, int y, enum stone_color sc)
 
                 delete(x + dx, y + dy); //コマを消す
 
-                place(x + dx, y + dy, !search); //新しくコマを置く
+                place(x + dx, y + dy, (search == stone_red) ? stone_green : stone_red)); //新しくコマを置く
             }
         }
     }
@@ -570,7 +570,7 @@ int search_placeable(enum stone_color sc)
 //どっちも置けない場合は終わり
 int is_game_over(enum stone_color sc1, enum stone_color sc2)
 {
-    return (!get_Stone_instance(sc1)->can_place & !get_Stone_instance(sc2)->can_place);
+    return (!get_Stone_instance(sc1)->can_place && !get_Stone_instance(sc2)->can_place);
 }
 /***********************************************************************/
 
@@ -699,9 +699,9 @@ void main(void)
                 state = TURN_OVER;
                 break;
             case TURN_OVER:
-                cursor.color = !cursor.color;
+                cursor.color = (cursor.color == stone_red) ? stone_green : stone_red);;
 
-                get_Stone_instance(cursor.color)->can_place = serch_placeable(cursor.color);
+                get_Stone_instance(cursor.color)->can_place = search_placeable(cursor.color);
              
                 if(is_game_over(stone_red, stone_green))
                 {
@@ -717,7 +717,7 @@ void main(void)
                 lcd_puts("Game over");
                 lcd_xy(1, 2);
                 lcd_puts("Push SW7");
-                fluch_lcd();
+                flush_lcd();
                 while(!sw7_flag);
                 sw7_flag = 0;
                 state = INIT;
