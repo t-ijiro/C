@@ -914,7 +914,7 @@ void main(void)
                     }
                     else
                     {
-                    	beep(DO0, 100);
+                        beep(DO0, 100);
 
                         state = MOVE;
                     }
