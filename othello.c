@@ -964,7 +964,8 @@ void main(void)
                 lcd_clear();
                 lcd_puts("Winner is ...");
                 flush_lcd();
-
+                
+                cursor.color = stone_black;
                 line_up_result(red.count, green.count, 20);
 
                 lcd_show_winner(red.count, green.count); 
