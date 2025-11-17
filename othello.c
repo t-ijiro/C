@@ -602,20 +602,20 @@ int is_out_of_board(int x, int y)
 //bit  :  0..その方角にひっくり返せない, 1..その方角にひっくり返せる
 unsigned char make_flip_dir_flag(int x, int y, enum stone_color sc)
 {
-    int i, j;
+    int dir, i;
     int dx, dy;
     unsigned char flag = 0x00;
 
     enum stone_color search;
 
-    for(i = 0; i < 8; i++)
+    for(dir = 0; dir < 8; dir++)
     {
         dx = dy = 0;
 
-        for(j = 0; j < 8; j++)
+        for(i = 0; i < 8; i++)
         {
-            dx += dxdy[i][0];
-            dy += dxdy[i][1];
+            dx += dxdy[dir][0];
+            dy += dxdy[dir][1];
 
             if(is_out_of_board(x + dx, y + dy)) break; //範囲外ならbreak
 
@@ -625,9 +625,9 @@ unsigned char make_flip_dir_flag(int x, int y, enum stone_color sc)
 
             if(search == sc)                           //挟む側のコマの色に遭遇したら
             {
-                if(j > 0)                              //j > 0 の時点で相手色を少なくとも1つは挟んでいる
+                if(i > 0)                              //i > 0 の時点で相手色を少なくとも1つは挟んでいる
                 {
-                    flag |= (1 << i);
+                    flag |= (1 << dir);
                 }
 
                 break;
@@ -654,20 +654,20 @@ int is_placeable(int x, int y, enum stone_color sc)
 //置きチェックの責任はis_placeable関数にあるので一緒に使う
 void flip_stones(unsigned char flag, int x, int y, enum stone_color sc)
 {
-    int i, j;
+    int dir, i;
     int dx, dy;
     enum stone_color search;
 
-    for(i = 0; i < 8; i++)
+    for(dir = 0; dir < 8; dir++)
     {
         dx = dy = 0;
 
-        if(flag & (1 << i))
+        if(flag & (1 << dir))
         {
-            for(j = 0; j < 8; j++)
+            for(i = 0; i < 8; i++)
             {
-                dx += dxdy[i][0];
-                dy += dxdy[i][1];
+                dx += dxdy[dir][0];
+                dy += dxdy[dir][1];
 
                 search = read_stone_at(x + dx, y + dy); //コマの色をチェック
 
