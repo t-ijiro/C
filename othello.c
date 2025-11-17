@@ -15,8 +15,10 @@
 #endif
 
 #include <machine.h>
+#include <stdlib.h>
 #include "lcd_lib4.h"
 #include "iodefine.h"
+#include "onkai.h"
 #include "vect.h"
 
 /*************************** マクロ ****************************/
@@ -43,9 +45,12 @@
 
 
 /**************************** 定数 ******************************/
-//置き判定の時の8方向の移動量 
+//置き判定の時の8方向の移動量
 //                        上       下       左       右      左上      左下     右上     右下
 const int dxdy[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
+
+//KEY = C majスケール
+const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
 /****************************************************************/
 
 
@@ -84,6 +89,7 @@ struct Rotary{
 //コマ
 struct Stone{
     unsigned char stone[MAT_HEIGHT]; //各列のビットマスクでコマを表現
+    int count;                       //そのコマの数
     int can_place;                   //置けるところはあるか？
 };
 
@@ -97,11 +103,15 @@ struct Cursor{
 
 
 /************************************* グローバル変数 *************************************/
-volatile unsigned long tc_1ms;           //1msタイマーカウンター
-volatile unsigned char sw7_flag;         //sw7割り込み発生フラグ(IRQ1)
-volatile struct Stone red, green;        //Stoneインスタンス
-volatile struct Cursor cursor;           //Cursorインスタンス
-volatile unsigned int screen[MAT_WIDTH]; //描画データ. 上位8ビットに赤, 下位8ビットに緑のstoneデータを格納する.
+volatile unsigned long tc_1ms;            //1msタイマーカウンター
+volatile unsigned long tc_2ms;            //2msタイマーカウンター
+volatile unsigned long tc_10ms;           //10msタイマーカウンター
+volatile unsigned long tc_IRQ;            //IRQ発生時のタイマカウンター
+volatile unsigned char IRQ1_flag;         //IRQ1発生フラグ(sw7)
+volatile unsigned int  beep_period_ms;    //ブザーを鳴らす時間(1ms基準)
+volatile unsigned int  screen[MAT_WIDTH]; //描画データ. 上位8ビットに赤, 下位8ビットに緑のstoneデータを格納する.
+volatile struct        Stone red, green;  //Stoneインスタンス
+volatile struct        Cursor cursor;     //Cursorインスタンス
 /*************************************************************************************/
 
 
@@ -149,16 +159,40 @@ void init_CLK(void)
     SYSTEM.PRCR.WORD = 0xA500;
 }
 
+void init_CMT0(void)
+{
+    SYSTEM.PRCR.WORD = 0x0A502;
+    MSTP(CMT0) = 0;
+    SYSTEM.PRCR.WORD = 0x0A500;
+    CMT0.CMCOR = 25000 / 8 - 1;
+    CMT0.CMCR.WORD |= 0x00C0;
+    IEN(CMT0, CMI0) = 1;
+    IPR(CMT0, CMI0) = 1;
+    CMT.CMSTR0.BIT.STR0 = 1;
+}
+
 void init_CMT1(void)
 {
     SYSTEM.PRCR.WORD = 0x0A502;
     MSTP(CMT1) = 0;
     SYSTEM.PRCR.WORD = 0x0A500;
-    CMT1.CMCOR = 25000 / 8 - 1;
+    CMT1.CMCOR = (25000 * 2) / 8 - 1;
     CMT1.CMCR.WORD |= 0x00C0;
     IEN(CMT1, CMI1) = 1;
     IPR(CMT1, CMI1) = 1;
     CMT.CMSTR0.BIT.STR1 = 1;
+}
+
+void init_CMT2(void)
+{
+    SYSTEM.PRCR.WORD = 0x0A502;
+    MSTP(CMT2) = 0;
+    SYSTEM.PRCR.WORD = 0x0A500;
+    CMT2.CMCOR = (25000 * 10) / 8 - 1;
+    CMT2.CMCR.WORD |= 0x00C0;
+    IEN(CMT2, CMI2) = 1;
+    IPR(CMT2, CMI2) = 1;
+    CMT.CMSTR0.BIT.STR2 = 1;
 }
 
 void init_IRQ1(void)
@@ -176,6 +210,26 @@ void init_IRQ1(void)
 	IR(ICU, IRQ1) = 0;
 	IEN(ICU, IRQ1) = 1;
 	IPR(ICU, IRQ1) = 1;
+}
+
+void init_BUZZER(void)
+{
+    SYSTEM.PRCR.WORD = 0x0A502;
+    MSTP(MTU0) = 0;
+    SYSTEM.PRCR.WORD = 0x0A500;
+    PORT3.PDR.BIT.B4 = 1;
+    PORT3.PMR.BIT.B4 = 1;
+    MPC.PWPR.BIT.B0WI = 0;
+    MPC.PWPR.BIT.PFSWE = 1;
+    MPC.P34PFS.BIT.PSEL = 1;
+    MPC.PWPR.BIT.PFSWE = 0;
+    MTU.TSTR.BIT.CST0 = 0x00;
+    MTU0.TCR.BIT.TPSC = 0x01;
+    MTU0.TCR.BIT.CCLR = 0x01;
+    MTU0.TMDR.BIT.MD = 0x02;
+    MTU0.TIORH.BIT.IOA = 0x06;
+    MTU0.TIORH.BIT.IOB = 0x05;
+    MTU0.TCNT = 0;
 }
 
 void init_MTU1(void)
@@ -199,24 +253,96 @@ void init_MTU1(void)
 
 void init_HARDWARE(void)
 {
-    init_CLK(); 
+    init_CLK();
     init_LCD();
     init_PORT();
+    init_CMT0();
     init_CMT1();
+    init_CMT2();
     init_IRQ1();
+    init_BUZZER();
     init_MTU1();
     setpsw_i();
 }
 /***********************************************************************************/
+/*********************************** ブザー ******************************************/
+void beep(unsigned int tone, unsigned int interval)
+{
+    if (tone)
+    {
+        MTU.TSTR.BIT.CST0 = 0;
+        MTU0.TGRA = tone;
+        MTU0.TGRB = tone / 2;
+        MTU.TSTR.BIT.CST0 = 1;
+    }
+    else
+    {
+        MTU.TSTR.BIT.CST0 = 0;
+    }
 
+    beep_period_ms = interval;
+}
 
 /********************************* LCD表示 ******************************************/
-void init_display(void)
+void init_lcd_show(void)
 {
   lcd_clear();
   lcd_xy(4, 1);
   lcd_puts("othello");
+
   flush_lcd();
+}
+
+void lcd_show_whose_turn(enum stone_color_sc)
+{
+    lcd_xy(1, 2);
+    lcd_puts("            ");
+    lcd_xy(1, 2);
+    lcd_puts("TURN : ");
+    lcd_puts((sc == stone_red) ? "RED" : "GREEN");
+    flush_lcd();
+}
+
+void lcd_show_skip_msg(void)
+{
+    lcd_xy(1, 2);
+    lcd_puts("            ");
+    lcd_puts("SKIP PUSH SW7");
+    flush_lcd();
+}
+
+void lcd_show_winner(int red_stone_count, int green_stone_count)
+{
+    char *winner;
+
+    lcd_xy(2, 2);
+   
+    if(red_stone_count > green_stone_count)
+    {
+        winner = "RED!";
+    }
+    else if(red_stone_count < green_stone_count)
+    {
+        winner = "GREEN!";
+    }
+    else
+    {
+        winner = "RED & GREEN!";
+    }
+
+    lcd_puts(winner);
+
+    flush_lcd();
+}
+
+void lcd_show_confirm(void)
+{
+    lcd_clear();
+    lcd_xy(4, 1);
+    lcd_puts("othello");
+    lcd_xy(1, 2);
+    lcd_puts("NEW -> PUSH SW7");
+    flush_lcd();
 }
 /*************************************************************************************/
 
@@ -308,9 +434,12 @@ void init_Stone(void)
     //置きコマ全撤去
     for(i = 0; i < MAT_WIDTH; i++)
     {
-        red.stone[i] = 0x00;
-        green.stone[i] = 0x00;
+        red.stone[i]   = 0;
+        green.stone[i] = 0;
     }
+
+    red.count   = 0;
+    green.count = 0;
 
     red.can_place   = 1;
     green.can_place = 1;
@@ -348,7 +477,7 @@ void place(int x, int y, enum stone_color sc)
 //指定した座標のコマを消す
 void delete(int x, int y)
 {   //赤緑どちらも消す
-    red.stone[x]   &= ~(1 << y); 
+    red.stone[x]   &= ~(1 << y);
     green.stone[x] &= ~(1 << y);
 }
 
@@ -454,6 +583,13 @@ void move_cursor(int direction)
 
 
 /************************************ ゲームロジック *********************************/
+//タイミング調整
+void wait_10ms(int period)
+{
+    tc_10ms = 0;
+    while(tc_10ms < period);
+}
+
 //座標範囲外か
 int is_out_of_board(int x, int y)
 {
@@ -478,11 +614,11 @@ unsigned char make_flip_dir_flag(int x, int y, enum stone_color sc)
 
         for(j = 0; j < 8; j++)
         {
-            dx += dxdy[i][0];                         
+            dx += dxdy[i][0];
             dy += dxdy[i][1];
 
             if(is_out_of_board(x + dx, y + dy)) break; //範囲外ならbreak
-    
+
             search = read_stone_at(x + dx, y + dy);    //コマの色を調査
 
             if(search == stone_black) break;           //何も置かれていなかったらbreak
@@ -542,7 +678,7 @@ void flip_stones(unsigned char flag, int x, int y, enum stone_color sc)
 
                 delete(x + dx, y + dy); //コマを消す
 
-                place(x + dx, y + dy, (search == stone_red) ? stone_green : stone_red)); //新しくコマを置く
+                place(x + dx, y + dy, (search == stone_red) ? stone_green : stone_red); //新しくコマを置く
             }
         }
     }
@@ -557,7 +693,7 @@ int search_placeable(enum stone_color sc)
     {
         for(y = 0; y < MAT_HEIGHT; y++)
         {
-            if(is_placeable(x, y, sc)) 
+            if(is_placeable(x, y, sc))
             {
                 return 1;
             }
@@ -567,59 +703,141 @@ int search_placeable(enum stone_color sc)
     return 0;
 }
 
-//どっちも置けない場合は終わり
-int is_game_over(enum stone_color sc1, enum stone_color sc2)
+//どっちも置けない, もしくは全部置かれた場合は終わり
+int is_game_over(void)
 {
-    return (!get_Stone_instance(sc1)->can_place && !get_Stone_instance(sc2)->can_place);
+    return ((!red.can_place && !green.can_place) || ( red.count + green.count ) == MAT_WIDTH * MAT_HEIGHT);
+}
+
+//指定した色のコマの数を数えて更新
+void update_stone_count(enum enum stone_color sc)
+{
+    int x, y;
+    int count = 0;
+
+    for(x = 0; x < MAT_WIDTH; x++)
+	{
+		for(y = 0; y < MAT_HEIGHT; y++)
+		{
+			if(read_stone_at(x, y) == sc)
+			{
+			    count++;
+			}
+		 }
+	}
+
+    get_Stone_instance(sc)->count = count;
+}
+
+void line_up_result(int red_stone_count, int green_stone_count, int period_10ms)
+{
+	int x;
+
+    //コマを全撤去
+	for(x = 0; x < MAT_WIDTH; x++)
+	{
+		red.stone[x]   = 0;
+		green.stone[x] = 0;
+	}
+
+	x = 0;
+
+	while(red_stone_count || green_stone_count)
+	{
+		if(red_stone_count)
+		{
+            //赤を左上から詰めていく
+            place(x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_red);
+	
+			red_stone_count--;
+		}
+		else
+		{   //赤を詰め終わったら続きから緑を詰めていく
+			place(x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_green);
+
+		    green_stone_count--;
+		}
+
+        //x座標に合わせてドレミ        
+		beep(C_SCALE[x % MAT_WIDTH], 50);
+
+        //詰めの感覚を調整
+		wait_10ms(period_10ms);
+
+		x++;
+	}
 }
 /***********************************************************************/
 
 
 /******************************** 割込み ********************************/
-// CMT1 CMI1 1msタイマ割込み
+// CMT0 CMI0 1msタイマ割込み
+void Excep_CMT0_CMI0(void)
+{
+	beep_period_ms--;
+
+	if(!beep_period_ms) //指定時間たったら音を止める
+	{
+		MTU.TSTR.BIT.CST0 = 0;
+	}
+}
+
+// CMT1 CMI1 2msタイマ割込み
 void Excep_CMT1_CMI1(void)
 {
 	int cn; //column number
 
-    tc_1ms++;
+    tc_2ms++;
 
-    cn = tc_1ms % 8;
+	cn = tc_2ms % 8;
 
-    //0.1秒おきに移動中のコマを点滅表示
-    if((tc_1ms / 100) % 2)  //点灯
-    {   
-        //赤緑のコマでスクリーンを上書き
-    	screen[cn] = (red.stone[cn] << 8) | (green.stone[cn]);
+    //赤緑のコマでスクリーンを上書き
+    screen[cn] = (red.stone[cn] << 8) | (green.stone[cn]);
 
-        //カーソルを追加
-        if(cursor.color == stone_red)
+    if(cursor.color != stone_black)
+    {
+        //0.15秒おきに移動中のコマを点滅表示
+        if((tc_2ms / 75) % 2)  //点灯
         {
-            screen[cursor.x] |= 1 << (cursor.y + 8);
+            //カーソルを追加
+            if(cursor.color == stone_red)
+            {
+                screen[cursor.x] |= 1 << (cursor.y + 8);
+            }
+            else if(cursor.color == stone_green)
+            {
+                screen[cursor.x] |= 1 << cursor.y;
+            }
         }
-        else
-        {
-            screen[cursor.x] |= 1 << cursor.y;
+        else //消灯
+        {   //カーソルの下に置きコマがあったら
+            if(  (cn == cursor.x)  && ((red.stone[cn] | green.stone[cn]) & (1 << cursor.y)))
+            {   //その座標の置きコマも点滅させる
+                screen[cn] = ((red.stone[cn] & ~(1 << cursor.y)) << 8) | ((green.stone[cn]) & ~(1 << cursor.y));
+            }
         }
-    }
-    else //消灯
-    {   //カーソルの下に置きコマがあったら
-    	if(  (cn == cursor.x)  && ((red.stone[cn] | green.stone[cn]) & (1 << cursor.y)))
-    	{   //その座標の置きコマも点滅させる
-    		screen[cn] = ((red.stone[cn] & ~(1 << cursor.y)) << 8) | ((green.stone[cn]) & ~(1 << cursor.y));
-    	}
-    	else
-    	{   //それ以外の場合は移動中のコマのみ消灯
-    		screen[cn] = (red.stone[cn] << 8) | (green.stone[cn]);
-    	}
     }
 
     col_out(cn, screen[cn]);
 }
 
+// CMT2 CMI2 10msタイマ割込み
+void Excep_CMT1_CMI1(void)
+{
+	tc_10ms++;
+}
+
 // ICU IRQ1 SW7立下がり割込み
 void Excep_ICU_IRQ1(void)
 {
-    sw7_flag = 1;
+	unsigned long now = tc_10ms;
+
+    //前のIRQ発生から0.3秒経ってなかったらreturn
+	if(now - tc_IRQ1 < 30) return;
+
+    IRQ1_flag = 1;
+
+    tc_IRQ1 = now;
 }
 /**************************************************************************************************/
 /******************************************* 関数定義終 ********************************************/
@@ -633,7 +851,7 @@ void main(void)
     unsigned char flip_dir_flag = 0x00; //置きチェック8方向フラグ
 
     init_HARDWARE();      //ハードウェア初期化
-  
+
     state = INIT;
 
     while(1)
@@ -641,51 +859,63 @@ void main(void)
         switch(state)
         {
             case INIT:
-                clear_pulse_diff_cnt(); //位相計数レジスタを0クリア
-                init_Rotary(&rotary);   //ロータリーエンコーダー構造体初期化
-                init_Stone();           //コマ構造体初期化
-                init_Cursor();          //カーソル構造体初期化
-                init_board();           //ボード配置初期化
-                init_display();         //LCD表示初期化
+            
+                clear_pulse_diff_cnt();             //位相計数レジスタを0クリア
+                init_Rotary(&rotary);               //ロータリーエンコーダー構造体初期化
+                init_Stone();                       //コマ構造体初期化
+                init_Cursor();                      //カーソル構造体初期化
+                init_board();                       //ボード配置初期化
+                init_lcd_show();                    //LCD表示初期化
+                lcd_show_whose_turn(cursor.color);
+
                 state = MOVE;
+
                 break;
             case MOVE:
-                if(!sw7_flag)
+
+                if(!IRQ1_flag)
                 {
-                    rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK; 
+                    rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
 
                     if(is_rotary_turned_left(&rotary))
                     {
-                        move_cursor((MOVE_TYPE_UP_DOWN) ? DOWN : LEFT);
+                        move_cursor((MOVE_TYPE_UP_DOWN)  ? DOWN : LEFT);
+                        beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
                     }
-
-                    if(is_rotary_turned_right(&rotary))
+                    else if(is_rotary_turned_right(&rotary))
                     {
-                        move_cursor((MOVE_TYPE_UP_DOWN) ? UP   : RIGHT);
+                        move_cursor((MOVE_TYPE_UP_DOWN)  ? UP   : RIGHT);
+                        beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
                     }
 
-                    rotary.prev_cnt = rotary.current_cnt;                     
+                    rotary.prev_cnt = rotary.current_cnt;
                 }
-                else                                                          
+                else
                 {
-                    sw7_flag = 0;
+                    IRQ1_flag = 0;
 
                     state = PLACE;
                 }
+
                 break;
             case PLACE:
+
                 if(get_Stone_instance(cursor.color)->can_place)
                 {
                     if(is_placeable(cursor.x, cursor.y, cursor.color))
                     {
+                        beep(DO2, 200);
+
                         place(cursor.x, cursor.y, cursor.color);
 
                         flip_dir_flag = make_flip_dir_flag(cursor.x, cursor.y, cursor.color);
-                    
+
                         state = FLIP;
                     }
                     else
                     {
+                    	beep(DO0, 100);
+
                         state = MOVE;
                     }
                 }
@@ -693,34 +923,61 @@ void main(void)
                 {
                     state = TURN_OVER;
                 }
+
                 break;
             case FLIP:
+
                 flip_stones(flip_dir_flag, cursor.x, cursor.y, cursor.color);
+
                 state = TURN_OVER;
+
                 break;
             case TURN_OVER:
-                cursor.color = (cursor.color == stone_red) ? stone_green : stone_red);;
+                
+                update_stone_count(cursor.color);
+
+                cursor.color = ((cursor.color == stone_red) ? stone_green : stone_red);
 
                 get_Stone_instance(cursor.color)->can_place = search_placeable(cursor.color);
-             
-                if(is_game_over(stone_red, stone_green))
+
+                if(is_game_over())
                 {
                     state = GAME_OVER;
                 }
                 else
                 {
+                    if(get_Stone_instance(cursor.color)->can_place)
+                    {
+                       lcd_show_whose_turn(cursor.color);
+                    }
+                    else
+                    {
+                        lcd_show_skip_msg();
+                    }
+
                     state = MOVE;
                 }
+
                 break;
-            case GAME_OVER: //未完成
+            case GAME_OVER: 
+
                 lcd_clear();
-                lcd_puts("Game over");
-                lcd_xy(1, 2);
-                lcd_puts("Push SW7");
+                lcd_puts("Winner is ...");
                 flush_lcd();
-                while(!sw7_flag);
-                sw7_flag = 0;
+
+                line_up_result(red.count, green.count, 20);
+
+                lcd_show_winner(red.count, green.count); 
+
+                wait_10ms(300);
+
+                lcd_show_confirm();
+
+                while(!IRQ1_flag);
+                IRQ1_flag = 0;
+
                 state = INIT;
+
                 break;
             default:
                 break;
@@ -731,4 +988,3 @@ void main(void)
 #ifdef __cplusplus
 extern "C" void abort(void) {}
 #endif
-
