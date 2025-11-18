@@ -192,7 +192,7 @@ void init_CMT2(void)
     CMT2.CMCR.WORD |= 0x00C0;
     IEN(CMT2, CMI2) = 1;
     IPR(CMT2, CMI2) = 1;
-    CMT.CMSTR0.BIT.STR2 = 1;
+    CMT.CMSTR1.BIT.STR2 = 1;
 }
 
 void init_IRQ1(void)
@@ -293,7 +293,7 @@ void init_lcd_show(void)
   flush_lcd();
 }
 
-void lcd_show_whose_turn(enum stone_color_sc)
+void lcd_show_whose_turn(enum stone_color sc)
 {
     lcd_xy(1, 2);
     lcd_puts("            ");
@@ -307,6 +307,7 @@ void lcd_show_skip_msg(void)
 {
     lcd_xy(1, 2);
     lcd_puts("            ");
+    lcd_xy(1, 2);
     lcd_puts("SKIP PUSH SW7");
     flush_lcd();
 }
@@ -316,7 +317,7 @@ void lcd_show_winner(int red_stone_count, int green_stone_count)
     char *winner;
 
     lcd_xy(2, 2);
-   
+
     if(red_stone_count > green_stone_count)
     {
         winner = "RED!";
@@ -710,7 +711,7 @@ int is_game_over(void)
 }
 
 //指定した色のコマの数を数えて更新
-void update_stone_count(enum enum stone_color sc)
+void update_stone_count(enum stone_color sc)
 {
     int x, y;
     int count = 0;
@@ -729,6 +730,7 @@ void update_stone_count(enum enum stone_color sc)
     get_Stone_instance(sc)->count = count;
 }
 
+//赤緑のコマを並べて結果発表
 void line_up_result(int red_stone_count, int green_stone_count, int period_10ms)
 {
 	int x;
@@ -748,7 +750,7 @@ void line_up_result(int red_stone_count, int green_stone_count, int period_10ms)
 		{
             //赤を左上から詰めていく
             place(x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_red);
-	
+
 			red_stone_count--;
 		}
 		else
@@ -758,7 +760,7 @@ void line_up_result(int red_stone_count, int green_stone_count, int period_10ms)
 		    green_stone_count--;
 		}
 
-        //x座標に合わせてドレミ        
+        //x座標に合わせてドレミ
 		beep(C_SCALE[x % MAT_WIDTH], 50);
 
         //詰めの感覚を調整
@@ -797,7 +799,7 @@ void Excep_CMT1_CMI1(void)
     if(cursor.color != stone_black)
     {
         //0.15秒おきに移動中のコマを点滅表示
-        if((tc_2ms / 75) % 2)  //点灯
+        if( (tc_2ms / (150 / 2) ) % 2)  //点灯
         {
             //カーソルを追加
             if(cursor.color == stone_red)
@@ -810,7 +812,8 @@ void Excep_CMT1_CMI1(void)
             }
         }
         else //消灯
-        {   //カーソルの下に置きコマがあったら
+        {   
+            //カーソルの下に置きコマがあったら
             if(  (cn == cursor.x)  && ((red.stone[cn] | green.stone[cn]) & (1 << cursor.y)))
             {   //その座標の置きコマも点滅させる
                 screen[cn] = ((red.stone[cn] & ~(1 << cursor.y)) << 8) | ((green.stone[cn]) & ~(1 << cursor.y));
@@ -818,11 +821,12 @@ void Excep_CMT1_CMI1(void)
         }
     }
 
+    //マトリックスLED出力
     col_out(cn, screen[cn]);
 }
 
 // CMT2 CMI2 10msタイマ割込み
-void Excep_CMT1_CMI1(void)
+void Excep_CMT2_CMI2(void)
 {
 	tc_10ms++;
 }
@@ -833,11 +837,11 @@ void Excep_ICU_IRQ1(void)
 	unsigned long now = tc_10ms;
 
     //前のIRQ発生から0.3秒経ってなかったらreturn
-	if(now - tc_IRQ1 < 30) return;
+	if(now - tc_IRQ < 30) return;
 
     IRQ1_flag = 1;
 
-    tc_IRQ1 = now;
+    tc_IRQ = now;
 }
 /**************************************************************************************************/
 /******************************************* 関数定義終 ********************************************/
@@ -859,7 +863,7 @@ void main(void)
         switch(state)
         {
             case INIT:
-            
+
                 clear_pulse_diff_cnt();             //位相計数レジスタを0クリア
                 init_Rotary(&rotary);               //ロータリーエンコーダー構造体初期化
                 init_Stone();                       //コマ構造体初期化
@@ -933,8 +937,9 @@ void main(void)
 
                 break;
             case TURN_OVER:
-                
-                update_stone_count(cursor.color);
+
+                update_stone_count(stone_red);
+                update_stone_count(stone_green);
 
                 cursor.color = ((cursor.color == stone_red) ? stone_green : stone_red);
 
@@ -959,16 +964,16 @@ void main(void)
                 }
 
                 break;
-            case GAME_OVER: 
+            case GAME_OVER:
 
                 lcd_clear();
                 lcd_puts("Winner is ...");
                 flush_lcd();
-                
+
                 cursor.color = stone_black;
                 line_up_result(red.count, green.count, 20);
 
-                lcd_show_winner(red.count, green.count); 
+                lcd_show_winner(red.count, green.count);
 
                 wait_10ms(300);
 
