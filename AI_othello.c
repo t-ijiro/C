@@ -1,7 +1,7 @@
 /***********************************************************************/
 /*                                                                     */
 /*  FILE        : othello.c                                            */
-/*  DATE        : 2025/11/23 SUN                                       */
+/*  DATE        : 2025/11/16 SUN                                       */
 /*  DESCRIPTION : Main Program                                         */
 /*  CPU TYPE    : RX Family                                            */
 /*                                                                     */
@@ -14,9 +14,8 @@
 //_SINT ios_base::Init::init_cnt;       // Remove the comment when you use ios
 #endif
 
-#include <stdlib.h>
-#include <string.h>
 #include <machine.h>
+#include <stdlib.h>
 #include "lcd_lib4.h"
 #include "iodefine.h"
 #include "onkai.h"
@@ -63,6 +62,7 @@ enum State{
     PLACE,
     FLIP,
     TURN_OVER,
+    AI_TINK,
     GAME_OVER
 };
 
@@ -95,7 +95,7 @@ struct Cursor{
 };
 
 //AI
-struct Player{
+struct Destination{
     int x;
     int y;
 };
@@ -775,11 +775,9 @@ void quick_sort_pair(int arr[], int idx[], int left, int right)
     if (i < right) quick_sort_pair(arr, idx, i, right);
 }
 
-//分割したい
-//aiのfreeを外部で忘れない
-struct Player *get_AI_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, int placeable_count)
+struct Destination get_AI_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, int placeable_count)
 {
-    struct Player *ai = malloc(sizeof(struct Player));
+    struct Destination dest;
     int random;
     int i, x, y;
     int **entry                = malloc(sizeof(int *) * placeable_count);
@@ -829,13 +827,13 @@ struct Player *get_AI_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color s
     if(i > 0)
     {
         random = rand() % (i + 1);
-        ai->x = entry[entry_idx[random]][0];
-        ai->y = entry[entry_idx[random]][1];
+        dest->x = entry[entry_idx[random]][0];
+        dest->y = entry[entry_idx[random]][1];
     }
     else
     {
-        ai->x = entry[entry_idx[0]][0];
-        ai->y = entry[entry_idx[0]][1];
+        dest->x = entry[entry_idx[0]][0];
+        dest->y = entry[entry_idx[0]][1];
     }
 
     free(entry);
@@ -843,7 +841,7 @@ struct Player *get_AI_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color s
     free(entry_data);
     free(opp_placeable_counts);
 
-    return ai;
+    return dest;
 }
 /***********************************************************************/
 
@@ -935,6 +933,8 @@ void main(void)
     int red_placeable_count   = 0;
     int green_placeable_count = 0;;
     int is_skip = 0;
+    struct Destination AI_dest;
+    int is_AI_turn = 0;
 
     init_HARDWARE();      //ハードウェア初期化
 
@@ -957,31 +957,59 @@ void main(void)
 
                 break;
             case MOVE:
-
-                if(!IRQ1_flag)
+                if(is_AI_turn)
                 {
-                    rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
-
-                    if(is_rotary_turned_left(&rotary))
+                    if(cursor.x < AI_dest.x)
                     {
-                        move_cursor((MOVE_TYPE_UP_DOWN)  ? DOWN : LEFT);
-                        beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
+                        move_cursor(RIGHT);
                     }
-                    else if(is_rotary_turned_right(&rotary))
+                    else if(cusor.x > AI_dest.x)
                     {
-                        move_cursor((MOVE_TYPE_UP_DOWN)  ? UP   : RIGHT);
-                        beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
+                        move_cursor(LEFT);
                     }
 
-                    rotary.prev_cnt = rotary.current_cnt;
+                    if(cursor.y < AI_dest.y)
+                    {
+                        move_cursor(UP);
+                    }
+                    else if(cusor.y > AI_dest.y)
+                    {
+                        move_cursor(DOWN);
+                    }
+
+                    if((cursor.x == AI_dest.x) && (cursor.y == AI_dest.y))
+                    {
+                        state = PLACE;
+                    }
+
+                    wait_10ms(300);
                 }
                 else
                 {
-                    IRQ1_flag = 0;
+                    if(!IRQ1_flag)
+                    {
+                        rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
 
-                    state = PLACE;
+                        if(is_rotary_turned_left(&rotary))
+                        {
+                            move_cursor((MOVE_TYPE_UP_DOWN) ? DOWN : LEFT);
+                            beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
+                        }
+                        else if(is_rotary_turned_right(&rotary))
+                        {
+                            move_cursor((MOVE_TYPE_UP_DOWN) ? UP : RIGHT);
+                            beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
+                        }
+
+                        rotary.prev_cnt = rotary.current_cnt;
+                    }
+                    else
+                    {
+                        IRQ1_flag = 0;
+
+                        state = PLACE;
+                    }
                 }
-
                 break;
             case PLACE:
 
@@ -1041,9 +1069,14 @@ void main(void)
                         lcd_show_whose_turn(cursor.color);
                     }
 
+                    is_AI_turn = !is_AI_turn;
+
                     state = MOVE;
                 }
 
+                break;
+            case AI_TINK:
+                dest = get_AI_dest(board, cursor.color, (cursor.color == stone_red) ? red_placeable_count : green_placeable_count)
                 break;
             case GAME_OVER:
                 int red_result   = count_stones(stone_red);
