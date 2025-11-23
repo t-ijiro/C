@@ -134,14 +134,14 @@ struct Destination{
 
 
 /************************************* グローバル変数 *************************************/
-volatile unsigned long tc_1ms;            //1msタイマーカウンター
-volatile unsigned long tc_2ms;            //2msタイマーカウンター
-volatile unsigned long tc_10ms;           //10msタイマーカウンター
-volatile unsigned long tc_IRQ;            //IRQ発生時のタイマカウンター
-volatile unsigned char IRQ1_flag;         //IRQ1発生フラグ(sw7)
-volatile unsigned int  beep_period_ms;    //ブザーを鳴らす時間(1ms基準)
-volatile enum          stone_color board[MAT_HEIGHT][MAT_WIDTH];
-volatile struct        Cursor cursor;     //Cursorインスタンス
+volatile unsigned long tc_1ms;                                   //1msタイマーカウンター
+volatile unsigned long tc_2ms;                                   //2msタイマーカウンター
+volatile unsigned long tc_10ms;                                  //10msタイマーカウンター
+volatile unsigned long tc_IRQ;                                   //IRQ発生時のタイマカウンター
+volatile unsigned char IRQ1_flag;                                //IRQ1発生フラグ(sw7)
+volatile unsigned int  beep_period_ms;                           //ブザーを鳴らす時間(1ms基準)
+volatile enum          stone_color board[MAT_HEIGHT][MAT_WIDTH]; //メインボード. 各座標の色情報を保持. 割り込みで描画に使用.
+volatile struct        Cursor cursor;                            //Cursorインスタンス
 /*************************************************************************************/
 
 
@@ -504,6 +504,7 @@ void set_cursor_xy(int x, int y)
     cursor.y = y;
 }
 
+//カーソルの色をセット
 void set_cursor_color(enum stone_color sc)
 {
     cursor.color = sc;
@@ -715,6 +716,7 @@ int is_game_over(int stone1_placeable_count, int stone2_placeable_count)
     return (!stone1_placeable_count && !stone2_placeable_count);
 }
 
+//指定した色のコマの数を数える
 int count_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
 {
     int x, y;
@@ -980,7 +982,7 @@ void main(void)
     //状態管理
     enum State state;
     
-    //入力デバイス
+    //ロータリーエンコーダ入力
     struct Rotary rotary;
     
     //ゲーム状態
@@ -991,7 +993,7 @@ void main(void)
     int red_placeable_count = 0;
     int green_placeable_count = 0;
     
-    //石反転用フラグ
+    //コマ反転用フラグ
     unsigned char flip_dir_flag = 0x00;
     
     //AI用
@@ -1108,7 +1110,7 @@ void main(void)
                 wait_10ms(300);
                 break;
 
-            //========== 石配置フェーズ ==========
+            //========== コマ配置フェーズ ==========
             case PLACE_CHECK:
                 if(is_skip)
                 {
@@ -1137,7 +1139,7 @@ void main(void)
                 state = (is_AI_turn) ? TURN_START : INPUT_WAIT;
                 break;
 
-            //========== 石反転フェーズ ==========
+            //========== コマ反転フェーズ ==========
             case FLIP_CALC:
                 flip_dir_flag = make_flip_dir_flag(board, cursor.x, cursor.y, cursor.color);
                 state = FLIP_RUN;
