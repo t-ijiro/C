@@ -22,6 +22,12 @@
 #include "vect.h"
 
 /*************************** マクロ ****************************/
+//チャタリング除去
+#define CHATTERING_WAIT_MS 300
+
+//AIの移動速度
+#define AI_MOVE_SPEED_MS 300
+
 //ロータリーエンコーダー
 #define PULSE_DIFF_PER_CLICK 4 //1クリックの位相計数
 #define UINT16T_MAX 65535      //MTU1.TCNTの最大値...符号なし16ビット
@@ -129,6 +135,20 @@ struct Cursor{
 struct Destination{
     int x;
     int y;
+};
+
+//プレイヤー情報
+struct Player{
+	int room;   //配置可能数
+	int result; //最終的なコマの保有数
+};
+
+//ゲーム状態
+struct Game{
+	Player red;
+	Player green;
+	int is_AI_turn; //AIのターンか？
+	int is_skip;    //スキップか？
 };
 /****************************************************************************************/
 
@@ -510,6 +530,7 @@ void set_cursor_color(enum stone_color sc)
     cursor.color = sc;
 }
 
+//カーソル初期化
 void init_Cursor(int x, int y, enum stone_color sc)
 {
     set_cursor_color(sc);
@@ -589,6 +610,17 @@ void move_cursor(int direction)
 
 
 /************************************ ゲームロジック *********************************/
+//ゲーム情報初期化
+init_Game(struct Game *g)
+{
+	g->red.room     = 2;
+	g->green.room   = 2;
+	g->red.result   = 0;
+	g->green.result = 0;
+	g->is_AI_turn   = 0;
+	g->is_skip      = 0;
+}
+
 //タイミング調整
 void wait_10ms(int period)
 {
@@ -965,8 +997,8 @@ void Excep_ICU_IRQ1(void)
 {
 	unsigned long now = tc_10ms;
 
-    //前のIRQ発生から0.3秒経ってなかったらreturn
-	if(now - tc_IRQ < 30) return;
+    //前のIRQ発生から指定時間経ってなかったらreturn
+	if(now - tc_IRQ < CATTERING_WAIT_MS) return;
 
     IRQ1_flag = 1;
 
@@ -979,31 +1011,21 @@ void Excep_ICU_IRQ1(void)
 /******************************************** メイン ***********************************************/
 void main(void)
 {
-    //状態管理
+    //状態遷移管理
     enum State state;
+
+	//ゲーム情報
+    struct Game game;
     
     //ロータリーエンコーダ入力
     struct Rotary rotary;
-    
-    //ゲーム状態
-    int is_AI_turn = 0;
-    int is_skip = 0;
-    
-    //配置可能数カウント
-    int red_placeable_count = 0;
-    int green_placeable_count = 0;
+
+	//AIの行き先
+    struct Destination AI_dest;
     
     //コマ反転用フラグ
     unsigned char flip_dir_flag = 0x00;
     
-    //AI用
-    struct Destination AI_dest;
-    
-    //ゲーム終了時の結果
-    int red_result = 0;
-    int green_result = 0;
-
-
     init_HARDWARE();
 
     state = INIT_HW;
@@ -1022,10 +1044,10 @@ void main(void)
             case INIT_GAME:
                 srand((unsigned int)tc_10ms);
                 init_board(board);
+				init_Game(&game);
                 init_Cursor(5, 3, stone_red);
                 init_lcd_show();
                 lcd_show_whose_turn(cursor.color);
-                is_AI_turn = 0;
                 state = TURN_START;
                 break;
 
@@ -1035,7 +1057,7 @@ void main(void)
                 break;
 
             case TURN_CHECK:
-                if(is_AI_turn)
+                if(game.is_AI_turn)
                 {
                     state = AI_THINK;
                 }
@@ -1047,7 +1069,7 @@ void main(void)
 
             //========== AI思考フェーズ ==========
             case AI_THINK:
-                AI_dest = get_AI_dest(board, cursor.color, (cursor.color == stone_red) ? red_placeable_count : green_placeable_count);
+                AI_dest = get_AI_dest(board, cursor.color, (cursor.color == stone_red) ? game.red.room : game.green.room);
                 state = CURSOR_MOVE;
                 break;
 
@@ -1111,12 +1133,12 @@ void main(void)
                     state = PLACE_CHECK;
                 }
 
-                wait_10ms(300);
+                wait_10ms(AI_MOVE_SPEED_MS / 10);
                 break;
 
             //========== コマ配置フェーズ ==========
             case PLACE_CHECK:
-                if(is_skip)
+                if(game.is_skip)
                 {
                     // スキップの場合は配置せずにターン終了
                     state = TURN_SWITCH;
@@ -1140,7 +1162,7 @@ void main(void)
             case PLACE_NG:
                 beep(DO0, 100);
                 // プレイヤーの場合は入力待ちに戻る、AIの場合は理論上ここに来ない
-                state = (is_AI_turn) ? TURN_START : INPUT_WAIT;
+                state = (game.is_AI_turn) ? TURN_START : INPUT_WAIT;
                 break;
 
             //========== コマ反転フェーズ ==========
@@ -1161,25 +1183,25 @@ void main(void)
                 break;
 
             case TURN_COUNT:
-                red_placeable_count   = count_placeable(board, stone_red);
-                green_placeable_count = count_placeable(board, stone_green);
+                game.red.room   = count_placeable(board, stone_red);
+                game.green.room = count_placeable(board, stone_green);
                 state = TURN_JUDGE;
                 break;
 
             case TURN_JUDGE:
-                if(is_game_over(red_placeable_count, green_placeable_count))
+                if(is_game_over(game.red.room, game.green.room))
                 {
                     state = END_CALC;
                 }
                 else
                 {
-                    is_skip = (cursor.color == stone_red) ? !red_placeable_count : !green_placeable_count;
+                    game.is_skip = (cursor.color == stone_red) ? !game.red.room : !game.green.room;
                     state = TURN_SHOW;
                 }
                 break;
 
             case TURN_SHOW:
-                if(is_skip)
+                if(game.is_skip)
                 {
                     lcd_show_skip_msg();
                 }
@@ -1189,14 +1211,14 @@ void main(void)
                 }
                 
                 //AI/プレイヤーの切り替え
-                is_AI_turn = !is_AI_turn;
+                game.is_AI_turn ^= 1;
                 state = TURN_START;
                 break;
 
             //========== ゲーム終了フェーズ ==========
             case END_CALC:
-                red_result   = count_stones(board, stone_red);
-                green_result = count_stones(board, stone_green);
+                game.red.result   = count_stones(board, stone_red);
+                game.green.result = count_stones(board, stone_green);
                 state = END_SHOW;
                 break;
 
@@ -1206,9 +1228,9 @@ void main(void)
                 flush_lcd();
 
                 set_cursor_color(stone_black);
-                line_up_result(board, red_result, green_result, 20);
+                line_up_result(board, game.red.result, game.green.result, 20);
 
-                lcd_show_winner(red_result, green_result);
+                lcd_show_winner(game.red.result, game.green.result);
 
                 wait_10ms(300);
 
