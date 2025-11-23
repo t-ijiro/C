@@ -1085,20 +1085,24 @@ void main(void)
             //========== AI自動移動フェーズ ==========
             case CURSOR_MOVE:
                 if(cursor.x < AI_dest.x)
-                {
+                {   
+                    beep(C_SCALE[cursor.x], 100);
                     move_cursor(RIGHT);
                 }
                 else if(cursor.x > AI_dest.x)
                 {
+                    beep(C_SCALE[cursor.x], 100);
                     move_cursor(LEFT);
                 }
 
                 if(cursor.y < AI_dest.y)
                 {
+                    beep(C_SCALE[cursor.y], 100);
                     move_cursor(UP);
                 }
                 else if(cursor.y > AI_dest.y)
                 {
+                    beep(C_SCALE[cursor.y], 100);
                     move_cursor(DOWN);
                 }
 
