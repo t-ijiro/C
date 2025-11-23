@@ -1,7 +1,7 @@
 /***********************************************************************/
 /*                                                                     */
 /*  FILE        : othello.c                                            */
-/*  DATE        : 2025/11/16 SUN                                       */
+/*  DATE        : 2025/11/23 SUN                                       */
 /*  DESCRIPTION : Main Program                                         */
 /*  CPU TYPE    : RX Family                                            */
 /*                                                                     */
