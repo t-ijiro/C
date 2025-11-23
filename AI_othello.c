@@ -125,7 +125,7 @@ struct Cursor{
     enum stone_color color; //カーソルの色
 };
 
-//AI
+//カーソルの行き先. AI用
 struct Destination{
     int x;
     int y;
