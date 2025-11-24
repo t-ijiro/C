@@ -57,7 +57,7 @@
 /************************************ 定数 *************************************************/
 //置き判定の時の8方向の移動量
 //                        上       下       左       右      左上      左下     右上     右下
-const int dxdy[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
+const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
 
 //KEY = C majスケール
 const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
@@ -602,8 +602,8 @@ unsigned char make_flip_dir_flag(enum stone_color brd[][MAT_WIDTH], int x, int y
 
         for(i = 0; i < 8; i++)
         {
-            dx += dxdy[dir][0];
-            dy += dxdy[dir][1];
+            dx += DXDY[dir][0];
+            dy += DXDY[dir][1];
 
             if(is_out_of_board(x + dx, y + dy)) break; //範囲外ならbreak
 
@@ -654,8 +654,8 @@ void flip_stones(unsigned char flag, enum stone_color brd[][MAT_WIDTH], int x, i
         {
             for(i = 0; i < 8; i++)
             {
-                dx += dxdy[dir][0];
-                dy += dxdy[dir][1];
+                dx += DXDY[dir][0];
+                dy += DXDY[dir][1];
 
                 search = read_stone_at(brd, x + dx, y + dy); //コマの色をチェック
 
