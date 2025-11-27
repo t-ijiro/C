@@ -803,7 +803,6 @@ void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int sto
 }
 
 /********************************************* AI ***********************************************/
-//クイックソート
 static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = {
     {120, -40,  20,  10,  10,  20, -40, 120},
     {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
