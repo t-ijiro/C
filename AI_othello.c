@@ -68,7 +68,7 @@ const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1,
 const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
 
 //盤面の重み計算. はじっこの方が重みが大きい.
-static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = 
+static const int POSITION_WEIGHTS[MAT_HEIGHT][MAT_WIDTH] = 
 {
     {120, -40,  20,  10,  10,  20, -40, 120},
     {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
@@ -844,11 +844,11 @@ int evaluate_position_weight(enum stone_color brd[][MAT_WIDTH], enum stone_color
         {
             if(brd[y][x] == ai_color)
             {
-                ai_score += position_weights[y][x];
+                ai_score += POSITION_WEIGHTS[y][x];
             }
             else if(brd[y][x] == opp_color)
             {
-                opp_score += position_weights[y][x];
+                opp_score += POSITION_WEIGHTS[y][x];
             }
         }
     }
