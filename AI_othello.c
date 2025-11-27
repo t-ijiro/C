@@ -66,6 +66,19 @@ const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1,
 
 //KEY = C majスケール
 const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
+
+//盤面の重み計算. はじっこの方が重みが大きい.
+static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = 
+{
+    {120, -40,  20,  10,  10,  20, -40, 120},
+    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
+    { 20,  -5,  15,  10,  10,  15,  -5,  20},
+    { 10,  -5,  10,   5,   5,  10,  -5,  10},
+    { 10,  -5,  10,   5,   5,  10,  -5,  10},
+    { 20,  -5,  15,  10,  10,  15,  -5,  20},
+    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
+    {120, -40,  20,  10,  10,  20, -40, 120}
+};
 /*******************************************************************************************/
 
 
@@ -165,31 +178,19 @@ struct Game{
 
 
 /************************************* 割り込み使用グローバル変数 *************************************/
-volatile unsigned long tc_1ms;                                    //1msタイマーカウンター
-volatile unsigned long tc_2ms;                                    //2msタイマーカウンター
-volatile unsigned long tc_10ms;                                   //10msタイマーカウンター
-volatile unsigned long tc_IRQ;                                    //IRQ発生時のタイマカウンター
-volatile unsigned char IRQ1_flag;                                 //IRQ1発生フラグ(sw7)
-volatile unsigned int  beep_period_ms;                            //ブザーを鳴らす時間(1ms基準)
-volatile enum          stone_color screen[MAT_HEIGHT][MAT_WIDTH]; //割り込みで描画に使用.
-volatile struct   Game *Game_inst_ISR;                            //ISR用Gameインスタンス. IRQ0で使用.
-volatile struct        Cursor cursor;                             //Cursorインスタンス
+static volatile unsigned long tc_1ms;                                    //1msタイマーカウンター
+static volatile unsigned long tc_2ms;                                    //2msタイマーカウンター
+static volatile unsigned long tc_10ms;                                   //10msタイマーカウンター
+static volatile unsigned long tc_IRQ;                                    //IRQ発生時のタイマカウンター
+static volatile unsigned char IRQ1_flag;                                 //IRQ1発生フラグ(sw7)
+static volatile unsigned int  beep_period_ms;                            //ブザーを鳴らす時間(1ms基準)
+static volatile enum          stone_color screen[MAT_HEIGHT][MAT_WIDTH]; //割り込みで描画に使用.
+static volatile struct   Game *Game_inst_ISR;                            //ISR用Gameインスタンス. IRQ0で使用.
+static volatile struct        Cursor cursor;                             //Cursorインスタンス
 /*************************************************************************************/
 
 
 /************************************* AI推論用グローバル変数 *************************************/
-//盤面の重み計算. はじっこの方が重みが大きい.
-static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = {
-    {120, -40,  20,  10,  10,  20, -40, 120},
-    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
-    { 20,  -5,  15,  10,  10,  15,  -5,  20},
-    { 10,  -5,  10,   5,   5,  10,  -5,  10},
-    { 10,  -5,  10,   5,   5,  10,  -5,  10},
-    { 20,  -5,  15,  10,  10,  15,  -5,  20},
-    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
-    {120, -40,  20,  10,  10,  20, -40, 120}
-};
-
 static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH]; //AIシミュレーションバッファ
 static int ai_entry_data[64 * 2];                      //座標候補
 static int ai_entry_idx[64];                           //ソートに対応させるための座標配列のインデックス
@@ -782,7 +783,7 @@ int count_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
 }
 
 //コマを並べて結果発表
-void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int stone2_count, int period_10ms, struct Game *g)
+void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int stone2_count, int period_10ms, int *buzzer_active)
 {
 	int x, y;
 
@@ -819,7 +820,7 @@ void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int sto
         flush_board(brd);
 
         //x座標に合わせてドレミ
-		beep(C_SCALE[x % MAT_WIDTH], 50, g->is_buzzer_active);
+		beep(C_SCALE[x % MAT_WIDTH], 50, *buzzer_active);
 
         //詰めの感覚を調整
 		wait_10ms(period_10ms);
@@ -1551,8 +1552,8 @@ void main(void)
                 lcd_puts("Winner is ...");
                 flush_lcd();
 
-                set_cursor_color(stone_black);
-                line_up_result(board, red.result, green.result, 20, &game); //0.2秒間隔でコマを詰める
+                set_cursor_color(stone_black);        //0.2秒間隔でコマを詰める
+                line_up_result(board, red.result, green.result, 20, &game.is_buzzer_active); 
 
                 lcd_show_winner(red.result, green.result);
 
