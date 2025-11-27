@@ -151,7 +151,6 @@ struct Player{
 //ゲーム状態
 struct Game{
 	int count_to_reset;
-	int reset_flag;
 	int is_buzzer_active;
 	int is_vs_AI;
 	int is_AI_turn; //AIのターンか？
@@ -1083,7 +1082,6 @@ void init_Rotary(struct Rotary *r)
 void init_Game(struct Game *g)
 {
 	g->count_to_reset = 0;
-	g->reset_flag = 0;
 	g->is_buzzer_active = 1;
 	g->is_vs_AI     = 0;
 	g->is_AI_turn   = 0;
