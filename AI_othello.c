@@ -704,20 +704,14 @@ void flip_stones(unsigned char flag, enum stone_color brd[][MAT_WIDTH], int x, i
     int dx, dy;
     enum stone_color search;
 
-    int flip_count = 0;
-
     for(dir = 0; dir < 8; dir++)
     {
         dx = dy = 0;
 
         if(flag & (1 << dir))
         {
-
             for(i = 0; i < 8; i++)
             {
-            	flip_count++;
-            	flip_count %= 8;
-
                 dx += DXDY[dir][0];
                 dy += DXDY[dir][1];
 
