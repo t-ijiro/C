@@ -162,8 +162,8 @@ struct Cursor{
 
 //プレイヤー情報
 struct Player{
-	int placeable_count;   //配置可能数
-	int result; //最終的なコマの保有数
+	int placeable_count; //配置可能数
+	int result;          //最終的なコマの保有数
 };
 
 //ゲーム状態
