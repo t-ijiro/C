@@ -630,7 +630,6 @@ void move_cursor(int direction)
 //タイミング調整
 void wait_10ms(int period)
 {
-	if(!period) return;
     tc_10ms = 0;
     while(tc_10ms < period)
         nop();
@@ -862,8 +861,14 @@ int evaluate_stone_count(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_
     {
         for(x = 0; x < MAT_WIDTH; x++)
         {
-            if(brd[y][x] == ai_color) ai_count++;
-            else if(brd[y][x] == opp_color) opp_count++;
+            if(brd[y][x] == ai_color)
+			{
+				ai_count++;
+			}
+            else if(brd[y][x] == opp_color)
+			{
+				opp_count++;
+			}
         }
     }
 
@@ -1098,11 +1103,11 @@ void init_Rotary(struct Rotary *r)
 //ゲーム情報初期化
 void init_Game(struct Game *g)
 {
-	g->count_to_reset = 0;
+	g->count_to_reset   = 0;
 	g->is_buzzer_active = 1;
-	g->is_vs_AI     = 0;
-	g->is_AI_turn   = 0;
-	g->is_skip      = 0;
+	g->is_vs_AI         = 0;
+	g->is_AI_turn       = 0;
+	g->is_skip          = 0;
 }
 
 //プレイヤー情報初期化
@@ -1219,6 +1224,7 @@ void Excep_CMT2_CMI2(void)
 	tc_10ms++;
 }
 
+// ICU IRQ0 SW6立下がり割込み
 void Excep_ICU_IRQ0(void)
 {
 	unsigned long now = tc_1ms;
@@ -1295,8 +1301,7 @@ void main(void)
     			beep(DO2, 300, game.is_buzzer_active);
     			state = INIT_HW;
     		}
-            
-
+			
     		start_tc = tc_1ms;
     	}
 
@@ -1323,9 +1328,9 @@ void main(void)
 
                 if(IRQ1_flag)
 				{
-                	state = INPUT_WAIT;
                 	beep(DO2, 200, game.is_buzzer_active);
                 	lcd_show_whose_turn(cursor.color);
+					state = TURN_START;
 					IRQ1_flag = 0;
 				}
 				else
@@ -1368,7 +1373,7 @@ void main(void)
                 break;
 
             case TURN_CHECK:
-                if(game.is_AI_turn)
+                if(game.is_AI_turn && game.is_vs_AI)
                 {
                     state = AI_THINK;
                 }
