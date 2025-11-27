@@ -62,10 +62,10 @@
 /************************************ 定数 *************************************************/
 //置き判定の時の8方向の移動量
 //                        上       下       左       右      左上      左下     右上     右下
-const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
+static const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
 
 //KEY = C majスケール
-const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
+static const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
 
 //盤面の重み計算. はじっこの方が重みが大きい.
 static const int POSITION_WEIGHTS[MAT_HEIGHT][MAT_WIDTH] = 
