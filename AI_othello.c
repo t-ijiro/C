@@ -130,7 +130,6 @@ enum State {
 
 //コマが動く方角
 enum Direction{
-	IDLE,
     LEFT,
     RIGHT,
     UP,
@@ -1405,8 +1404,6 @@ void main(void)
 
                 break;
             case INPUT_READ:
-            	rotary.dir = IDLE;
-
                 rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
 
                 if(is_rotary_turned_left(&rotary))
@@ -1425,7 +1422,6 @@ void main(void)
                 state = INPUT_WAIT;
 
                 break;
-
             //********** AI自動移動フェーズ **********//
             case AI_MOVE:
                 if(cursor.x < cursor.dest_x)
