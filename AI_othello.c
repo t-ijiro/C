@@ -52,7 +52,11 @@
 //AIの先読みの回数
 #define AI_DEPTH 5
 
-#define POS_WE
+//座標の重み係数
+#define POS_WEIGHT 5
+
+//配置可能座標数の重み係数
+#define MOBILITY_WEIGHT 5
 /********************************************************************************************/
 
 
@@ -943,7 +947,7 @@ int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color a
         position_score = evaluate_position_weight(brd, ai_color);
         placeable_count = count_placeable(brd, opp_color);
 
-        return (position_score * 5 + placeable_count * 5) / 10;
+        return (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT) / 10;
     }
 
     placeable_count = count_placeable(brd, opp_color);
@@ -952,7 +956,7 @@ int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color a
     if(placeable_count == 0)
     {
         position_score = evaluate_position_weight(brd, ai_color);
-        return (position_score * 5 + placeable_count * 5) / 10;
+        return (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT) / 10;
     }
 
     total_score = 0;
@@ -1027,7 +1031,7 @@ void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, 
                 opp_color = (sc == stone_red) ? stone_green : stone_red;
                 position_score = evaluate_position_weight(buf, sc);
                 placeable = count_placeable(buf, opp_color);
-                scores[i] = (position_score * 5 + placeable * 5) / 10;
+                scores[i] =  (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT) / 10;
             }
             else
             {
