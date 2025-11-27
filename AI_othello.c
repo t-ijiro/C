@@ -1154,7 +1154,7 @@ void init_lcd_show(enum stone_color sc)
   lcd_xy(5, 1);
   lcd_puts("othello");
   lcd_xy(1, 2);
-  lcd_puts("VS  FRIEND : AI");
+  lcd_puts("VS >FRIEND : AI");
   flush_lcd();
 }
 /*************************************************************************************************/
@@ -1273,8 +1273,10 @@ void main(void)
     //コマ反転用フラグ
     unsigned char flip_dir_flag;
 
+    //経過時間計測スタート
     unsigned long start_tc = tc_1ms;
 
+    //割り込み(IRQ0)用インスタンス
     Game_inst_ISR = &game;
 
     init_RX210();
@@ -1293,11 +1295,12 @@ void main(void)
 				game.count_to_reset = 0;
 			}
 
-    		if(game.count_to_reset > 3)
+    		if(game.count_to_reset > 2) //3秒長押しされたらリセット
     		{
     			beep(DO2, 300, game.is_buzzer_active);
     			state = INIT_HW;
     		}
+            
 
     		start_tc = tc_1ms;
     	}
@@ -1343,23 +1346,19 @@ void main(void)
 				{
 					beep(DO3, 50, game.is_buzzer_active);
 					game.is_vs_AI ^= 1;
-				}
-
-				if(!game.is_vs_AI)
-				{
-					lcd_xy(13, 2);
-					lcd_put(' ');
-					lcd_xy(4, 2);
-					lcd_put('>');
-					flush_lcd();
-				}
-				else
-				{
-					lcd_xy(4, 2);
-					lcd_put(' ');
-					lcd_xy(13, 2);
-					lcd_put('>');
-					flush_lcd();
+                    
+                    if(game.is_vs_AI)
+				    {
+                        lcd_xy(1, 2);
+                        lcd_puts("VS  FRIEND :>AI");
+					    flush_lcd();
+				    }
+				    else
+				    {
+					    lcd_xy(1, 2);
+                        lcd_puts("VS >FRIEND : AI");
+					    flush_lcd();
+				    }
 				}
 
 				rotary.prev_cnt = rotary.current_cnt;
