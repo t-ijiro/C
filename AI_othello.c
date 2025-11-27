@@ -51,6 +51,8 @@
 
 //AIの先読みの回数
 #define AI_DEPTH 5
+
+#define POS_WE
 /********************************************************************************************/
 
 
@@ -150,11 +152,11 @@ struct Player{
 
 //ゲーム状態
 struct Game{
-	int count_to_reset;
-	int is_buzzer_active;
-	int is_vs_AI;
-	int is_AI_turn; //AIのターンか？
-	int is_skip;    //スキップか？
+	int count_to_reset;   //リセットボタンのカウント数
+	int is_buzzer_active; //サウンドはオンかオフか？
+	int is_vs_AI;         //AI対戦モードか？
+	int is_AI_turn;       //AIのターンか？
+	int is_skip;          //スキップか？
 };
 /****************************************************************************************/
 
@@ -167,8 +169,29 @@ volatile unsigned long tc_IRQ;                                    //IRQ発生時
 volatile unsigned char IRQ1_flag;                                 //IRQ1発生フラグ(sw7)
 volatile unsigned int  beep_period_ms;                            //ブザーを鳴らす時間(1ms基準)
 volatile enum          stone_color screen[MAT_HEIGHT][MAT_WIDTH]; //割り込みで描画に使用.
-volatile struct Game   *game_isr;
+volatile struct   Game *Game_inst_ISR;                            //ISR用Gameインスタンス. IRQ0で使用.
 volatile struct        Cursor cursor;                             //Cursorインスタンス
+/*************************************************************************************/
+
+
+/************************************* AI推論用グローバル変数 *************************************/
+//盤面の重み計算. はじっこの方が重みが大きい.
+static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = {
+    {120, -40,  20,  10,  10,  20, -40, 120},
+    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
+    { 20,  -5,  15,  10,  10,  15,  -5,  20},
+    { 10,  -5,  10,   5,   5,  10,  -5,  10},
+    { 10,  -5,  10,   5,   5,  10,  -5,  10},
+    { 20,  -5,  15,  10,  10,  15,  -5,  20},
+    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
+    {120, -40,  20,  10,  10,  20, -40, 120}
+};
+
+
+static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH]; //AIシミュレーションバッファ
+static int ai_entry_data[64 * 2];                      //座標候補
+static int ai_entry_idx[64];                           //ソートに対応させるための座標配列のインデックス
+static int ai_scores[64];                              //座標評価
 /*************************************************************************************/
 
 
@@ -803,22 +826,6 @@ void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int sto
 }
 
 /********************************************* AI ***********************************************/
-static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = {
-    {120, -40,  20,  10,  10,  20, -40, 120},
-    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
-    { 20,  -5,  15,  10,  10,  15,  -5,  20},
-    { 10,  -5,  10,   5,   5,  10,  -5,  10},
-    { 10,  -5,  10,   5,   5,  10,  -5,  10},
-    { 20,  -5,  15,  10,  10,  15,  -5,  20},
-    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
-    {120, -40,  20,  10,  10,  20, -40, 120}
-};
-
-static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH];     // AI用
-static int ai_entry_data[64 * 2];
-static int ai_entry_idx[64];
-static int ai_scores[64];
-
 // 盤面の位置評価を計算
 int evaluate_position_weight(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_color)
 {
@@ -1208,7 +1215,7 @@ void Excep_ICU_IRQ0(void)
 	//前のIRQ発生から指定時間経ってなかったらreturn
 	if(now - tc_IRQ < CHATTERING_WAIT_MS) return;
 
-	game_isr->is_buzzer_active ^= 1;
+    Game_inst_ISR->is_buzzer_active ^= 1;
 
 	tc_IRQ = now;
 }
@@ -1252,13 +1259,12 @@ void main(void)
 
     unsigned long start_tc = tc_1ms;
 
-    game_isr = &game;
+    Game_inst_ISR = &game;
 
     init_RX210();
 
     while(1)
     {
-
     	if(tc_1ms - start_tc > 1000)
     	{
     		if(!PORTH.PIDR.BIT.B0)
@@ -1279,7 +1285,6 @@ void main(void)
 
     		start_tc = tc_1ms;
     	}
-
 
         switch(state)
         {
