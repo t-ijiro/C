@@ -52,11 +52,10 @@
 //AIの先読みの回数
 #define AI_DEPTH 5
 
-//座標の重み係数
-#define POS_WEIGHT 5
-
-//配置可能座標数の重み係数
-#define MOBILITY_WEIGHT 5
+//評価関数の重み定義
+#define POS_WEIGHT 7        // 位置評価の重み
+#define MOBILITY_WEIGHT 3   // 配置可能数の重み
+#define STABLE_WEIGHT 30    // 確定石の重み
 /********************************************************************************************/
 
 
@@ -882,7 +881,6 @@ int count_stable_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color colo
 {
     int stable_count = 0;
 
-
     // 角の石は確定石
     if(brd[0][0] == color) stable_count++;
     if(brd[0][MAT_WIDTH-1] == color) stable_count++;
@@ -924,7 +922,7 @@ void quick_sort_pair(int arr[], int idx[], int left, int right)
     if (i < right) quick_sort_pair(arr, idx, i, right);
 }
 
-// n手先の盤面の評価値を計算（位置評価+配置可能数）
+// n手先の盤面の評価値を計算（位置評価+配置可能数+確定石）
 // 重み係数で調整可能
 int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_color, int depth)
 {
@@ -934,38 +932,50 @@ int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color a
     int total_score, move_count;
     enum stone_color (*buf)[MAT_WIDTH];
     int position_score;
-
-    buf = malloc(sizeof(enum stone_color) * MAT_WIDTH * MAT_HEIGHT);
-
-    if(!buf) return -1;
+    int ai_stable, opp_stable, stable_diff;
 
     opp_color = (ai_color == stone_red) ? stone_green : stone_red;
 
     if(depth <= 0)
     {
-        // 位置評価(重み70%) + 配置可能数(重み30%)
+        // 位置評価 + 配置可能数 + 確定石の差
         position_score = evaluate_position_weight(brd, ai_color);
         placeable_count = count_placeable(brd, opp_color);
+        
+        // 確定石の差を計算（相手 - 自分、小さいほど有利）
+        ai_stable = count_stable_stones(brd, ai_color);
+        opp_stable = count_stable_stones(brd, opp_color);
+        stable_diff = (opp_stable - ai_stable) * STABLE_WEIGHT;
 
-        return (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT) / 10;
+        return (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT + stable_diff * 10) / 10;
     }
+
+    buf = malloc(sizeof(enum stone_color) * MAT_WIDTH * MAT_HEIGHT);
+    if(!buf) return 0;  // メモリ確保失敗時は中立的な評価を返す
 
     placeable_count = count_placeable(brd, opp_color);
 
     // 相手が置けない場合は、そのまま評価
     if(placeable_count == 0)
     {
+        int ai_stable, opp_stable, stable_diff;
+        
         position_score = evaluate_position_weight(brd, ai_color);
-        return (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT) / 10;
+        ai_stable = count_stable_stones(brd, ai_color);
+        opp_stable = count_stable_stones(brd, opp_color);
+        stable_diff = (opp_stable - ai_stable) * STABLE_WEIGHT;
+        
+        free(buf);
+        return (position_score * POS_WEIGHT + stable_diff * 10) / 10;
     }
 
     total_score = 0;
     move_count = 0;
 
     // 相手のすべての可能な手を試して、平均を取る
-    for(x = 0; x < MAT_WIDTH; x++)
+    for(y = 0; y < MAT_HEIGHT; y++)
     {
-        for(y = 0; y < MAT_HEIGHT; y++)
+        for(x = 0; x < MAT_WIDTH; x++)
         {
             if(!is_placeable(brd, x, y, opp_color)) continue;
 
@@ -986,18 +996,15 @@ int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color a
 }
 
 // AIの次の行き先を決める
-// depth: 読む手数（1=1手先、2=2手先...）
+// depth: 読む手数（0=1手先、1=2手先...）
 void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, int placeable_count, int depth)
 {
     int x, y, i;
-
     int placeable;
     int position_score;
-    int *entry_idx;
-    int *scores;
-    enum stone_color (*buf)[MAT_WIDTH];
     enum stone_color opp_color;
     int random, idx;
+    int best_score_count;
 
     // スキップ = どこにも置けない場合は現在のカーソル位置を返す
     if(!placeable_count)
@@ -1008,11 +1015,12 @@ void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, 
     }
 
     i = 0;
+    opp_color = (sc == stone_red) ? stone_green : stone_red;
 
     // すべての配置可能な手を評価
-    for(x = 0; x < MAT_WIDTH; x++)
+    for(y = 0; y < MAT_HEIGHT; y++)
     {
-        for(y = 0; y < MAT_HEIGHT; y++)
+        for(x = 0; x < MAT_WIDTH; x++)
         {
             if(!is_placeable(brd, x, y, sc)) continue;
 
@@ -1027,49 +1035,53 @@ void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, 
 
             if(depth <= 0)
             {
-                // 1手先: 位置評価+配置可能数
-                opp_color = (sc == stone_red) ? stone_green : stone_red;
-                position_score = evaluate_position_weight(buf, sc);
-                placeable = count_placeable(buf, opp_color);
-                scores[i] =  (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT) / 10;
+                // 1手先: 位置評価+配置可能数+確定石
+                int ai_stable, opp_stable, stable_diff;
+                
+                position_score = evaluate_position_weight(ai_buf, sc);
+                placeable = count_placeable(ai_buf, opp_color);
+                ai_stable = count_stable_stones(ai_buf, sc);
+                opp_stable = count_stable_stones(ai_buf, opp_color);
+                stable_diff = (opp_stable - ai_stable) * STABLE_WEIGHT;
+                
+                ai_scores[i] = (position_score * POS_WEIGHT + placeable * MOBILITY_WEIGHT + stable_diff * 10) / 10;
             }
             else
             {
                 // n手先を読む
-                scores[i] = evaluate_n_moves_ahead(buf, sc, depth);
+                ai_scores[i] = evaluate_n_moves_ahead(ai_buf, sc, depth);
             }
 
             i++;
-            if(i == placeable_count || scores[i - 1] == -1) break;
+            if(i >= placeable_count) break;
         }
-        if(i == placeable_count || scores[i - 1] == -1) break;
+        if(i >= placeable_count) break;
     }
 
     // スコアの小さい順（有利な順）にソート
-    quick_sort_pair(scores, entry_idx, 0, i - 1);
+    quick_sort_pair(ai_scores, ai_entry_idx, 0, i - 1);
 
     // 同列一位の数をチェック
-    i = 0;
-    while((i < placeable_count - 1) && (ai_scores[i] == ai_scores[i + 1]))
+    best_score_count = 1;
+    while((best_score_count < i) && (ai_scores[0] == ai_scores[best_score_count]))
     {
-        i++;
+        best_score_count++;
     }
 
-    if(i > 0)
+    if(best_score_count > 1)
     {
         // 同列一位があったらランダムで決める
-        random = rand() % (i + 1);
+        random = rand() % best_score_count;
         idx = ai_entry_idx[random];
-        cursor.dest_x = ai_entry_data[idx * 2];
-        cursor.dest_y = ai_entry_data[idx * 2 + 1];
     }
     else
     {
         // 最良の手を選択
         idx = ai_entry_idx[0];
-        cursor.dest_x = ai_entry_data[idx * 2];
-        cursor.dest_y = ai_entry_data[idx * 2 + 1];
     }
+
+    cursor.dest_x = ai_entry_data[idx * 2];
+    cursor.dest_y = ai_entry_data[idx * 2 + 1];
 }
 /*************************************************************************************************/
 
