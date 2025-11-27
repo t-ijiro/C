@@ -50,7 +50,7 @@
 #define MOVE_TYPE_UP_DOWN (PORTH.PIDR.BIT.B3 == 0) //上下方向移動モード
 
 //AIの先読みの回数
-#define AI_DEPTH 3
+#define AI_DEPTH 5
 /********************************************************************************************/
 
 
@@ -804,6 +804,19 @@ void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int sto
 }
 
 /********************************************* AI ***********************************************/
+//クイックソート
+//要素だけではなく対応するインデックスの並び替えも行う
+// 盤面の位置ごとの重みテーブル（8x8の場合の例）
+// 角=100, 辺=10, 角の隣=-20（取られやすい）, 中央=1
+// 盤面の位置ごとの重みテーブル（8x8の場合の例）
+// 角=100, 辺=10, 角の隣=-20（取られやすい）, 中央=1
+// 最強の位置評価テーブル
+// 盤面の位置ごとの重みテーブル（8x8の場合の例）
+// 角=100, 辺=10, 角の隣=-20（取られやすい）, 中央=1
+// 最強の位置評価テーブル
+// 盤面の位置ごとの重みテーブル（8x8の場合の例）
+// 角=100, 辺=10, 角の隣=-20（取られやすい）, 中央=1
+// 最強の位置評価テーブル
 static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = {
     {120, -40,  20,  10,  10,  20, -40, 120},
     {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
@@ -937,7 +950,7 @@ int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color a
         position_score = evaluate_position_weight(brd, ai_color);
         placeable_count = count_placeable(brd, opp_color);
 
-        return (position_score * 6 + placeable_count * 4) / 10;
+        return (position_score * 5 + placeable_count * 5) / 10;
     }
 
     placeable_count = count_placeable(brd, opp_color);
@@ -946,7 +959,7 @@ int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color a
     if(placeable_count == 0)
     {
         position_score = evaluate_position_weight(brd, ai_color);
-        return (position_score * 7 + placeable_count * 3) / 10;
+        return (position_score * 5 + placeable_count * 5) / 10;
     }
 
     total_score = 0;
@@ -1021,7 +1034,7 @@ void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, 
                 opp_color = (sc == stone_red) ? stone_green : stone_red;
                 position_score = evaluate_position_weight(buf, sc);
                 placeable = count_placeable(buf, opp_color);
-                scores[i] = (position_score * 7 + placeable * 3) / 10;
+                scores[i] = (position_score * 5 + placeable * 5) / 10;
             }
             else
             {
