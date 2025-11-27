@@ -756,7 +756,7 @@ int count_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
 }
 
 //コマを並べて結果発表
-void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int stone2_count, int period_10ms, int buzzer_active)
+void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int stone2_count, int period_10ms, struct Game *g)
 {
 	int x, y;
 
@@ -793,7 +793,7 @@ void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int sto
         flush_board(brd);
 
         //x座標に合わせてドレミ
-		beep(C_SCALE[x % MAT_WIDTH], 50, buzzer_active);
+		beep(C_SCALE[x % MAT_WIDTH], 50, g->is_buzzer_active);
 
         //詰めの感覚を調整
 		wait_10ms(period_10ms);
@@ -1533,7 +1533,7 @@ void main(void)
                 flush_lcd();
 
                 set_cursor_color(stone_black);
-                line_up_result(board, red.result, green.result, 20, game.is_buzzer_active); //0.2秒間隔でコマを詰める
+                line_up_result(board, red.result, green.result, 20, &game); //0.2秒間隔でコマを詰める
 
                 lcd_show_winner(red.result, green.result);
 
