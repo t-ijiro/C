@@ -191,7 +191,6 @@ static const int position_weights[MAT_HEIGHT][MAT_WIDTH] = {
     {120, -40,  20,  10,  10,  20, -40, 120}
 };
 
-
 static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH]; //AIシミュレーションバッファ
 static int ai_entry_data[64 * 2];                      //座標候補
 static int ai_entry_idx[64];                           //ソートに対応させるための座標配列のインデックス
@@ -203,6 +202,7 @@ static int ai_scores[64];                              //座標評価
 /********************************** ハードウェア初期化 ***********************************/
 void init_PORT(void)
 {
+    PORTH.PDR.BIT.B0 = 0;
     PORTH.PDR.BIT.B3 = 0;
     PORT1.PDR.BYTE = 0xE0;
     PORTE.PDR.BYTE = 0xFF;
