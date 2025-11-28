@@ -3,7 +3,7 @@
 //  FILE        : othello.c                                            
 //  DATE        : 2025/11/25 Tue.                                       
 //  DESCRIPTION : Main Program                                         
-//  CPU TYPE    : RX 210                                            
+//  CPU TYPE    : RX Family                                            
 //                                                                     
 //  Author T.Ijiro                  
 //                                                                                                                          
