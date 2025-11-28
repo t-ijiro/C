@@ -361,6 +361,21 @@ void init_MTU1(void)
 	MTU.TSTR.BIT.CST1 = 1;
 }
 
+void init_AD0(void)
+{
+    SYSTEM.PRCR.WORD = 0xA502;
+    MSTP(S12AD) = 0;
+    SYSTEM.PRCR.WORD = 0xA500;
+    PORT4.PMR.BIT.B0 = 1;
+    S12AD.ADCSR.BIT.ADIE = 0;
+    S12AD.ADANSA.BIT.ANSA0 = 1;
+    S12AD.ADCSR.BIT.ADCS = 0;
+    MPC.PWPR.BIT.B0WI = 0;
+    MPC.PWPR.BIT.PFSWE = 1;
+    MPC.P40PFS.BIT.ASEL = 1;
+    MPC.PWPR.BIT.PFSWE = 0;
+}
+
 void init_RX210(void)
 {
     init_CLK();
@@ -373,6 +388,7 @@ void init_RX210(void)
     init_IRQ1();
     init_BUZZER();
     init_MTU1();
+    init_AD0();
     setpsw_i();
 }
 /***********************************************************************************/
@@ -642,6 +658,16 @@ void wait_10ms(int period)
     tc_10ms = 0;
     while(tc_10ms < period)
         nop();
+}
+
+//AD変換値を取得. 乱数のシード値に利用.
+unsigned int get_AD0_val(void)
+{
+    S12AD.ADCSR.BIT.ADST = 1;
+    while (1 == S12AD.ADCSR.BIT.ADST)
+        ;
+
+    return (unsigned int)S12AD.ADDR0;
 }
 
 //座標範囲外か
@@ -1323,7 +1349,7 @@ void main(void)
                 break;
 
             case INIT_GAME:
-                srand((unsigned int)tc_10ms);
+                srand(get_AD0_val());
                 init_Game(&game);
                 init_Player(&red, &green);
                 init_board(board);
