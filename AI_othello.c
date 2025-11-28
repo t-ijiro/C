@@ -695,7 +695,6 @@ int is_placeable(enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_col
 }
 
 //8方向フラグをつかって相手のコマをひっくり返す
-//置きチェックの責任はis_placeable関数にあるので一緒に使う
 void flip_stones(unsigned char flag, enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
 {
     int dir, i;
