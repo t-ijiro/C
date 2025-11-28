@@ -641,7 +641,7 @@ int is_out_of_board(int x, int y)
 }
 
 //8方向のひっくり返しフラグを作る
-//　      右下 右上  左下 左上  右   左  下   上
+//　      右下  右上  左下  左上  右    左   下   上
 //flag :  b7   b6   b5   b4   b3   b2   b1  b0
 //bit  :  0..その方角にひっくり返せない, 1..その方角にひっくり返せる
 unsigned char make_flip_dir_flag(enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
