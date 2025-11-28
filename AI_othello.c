@@ -6,8 +6,8 @@
 /*  CPU TYPE    : RX Family                                            */
 /*                                                                     */
 /*  Author T.Ijiro                                                     */
-/*  othello.cで定義されている割り込み関数はintprg.c内でコメントアウトする           */                                                      */
-/*  stacksct.hのsuを0xFF0に変更する                                        */
+/*  othello.cで定義されている割り込み関数はintprg.c内でコメントアウトする          */                                                      */
+/*  stacksct.hのsuを0xFF0に変更する                                       */
 /***********************************************************************/
 // #include "typedefine.h"
 #ifdef __cplusplus
