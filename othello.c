@@ -1,13 +1,25 @@
-/***********************************************************************/
-/*                                                                     */
-/*  FILE        : othello.c                                            */
-/*  DATE        : 2025/11/16 SUN                                       */
-/*  DESCRIPTION : Main Program                                         */
-/*  CPU TYPE    : RX Family                                            */
-/*                                                                     */
-/*  Author t.ijiro                                                     */
-/*                                                                     */
-/***********************************************************************/
+/*********************************************************************************************/
+//                                                                     
+//  FILE        : othello.c                                            
+//  DATE        : 2025/11/25 Tue.                                       
+//  DESCRIPTION : Main Program                                         
+//  CPU TYPE    : RX 210                                            
+//                                                                     
+//  Author T.Ijiro                  
+//                                                                                                                          
+//  ビルド                                           　　　　　　                                                             
+//  ・以下の割り込み関数をintprg.c内でコメントアウトする
+//    Excep_CMT0_CMI0, Excep_CMT1_CMI1, Excep_CMT2_CMI2, Excep_ICU_IRQ0, Excep_ICU_IRQ1
+//
+//  ・stacksct.hのsuを0xFF0に変更する                                  　  
+//                                                                    　                                                      
+//  入力機能                                                       　　　                                                      
+//  ・ロータリーエンコーダー : カーソル移動                                    
+//  ・sw5                  : 2〜3秒長押しでリセット                                                                                 
+//  ・sw6                  : サウンドオンオフ                                            　　
+//  ・sw7                  : 決定                                                                                           
+//  ・sw8                  : 移動方向オプション選択 ONで縦移動モード OFFで横移動モード       　　                                                                                                                
+/************************************************************************************************/
 // #include "typedefine.h"
 #ifdef __cplusplus
 // #include <ios>                        // Remove the comment when you use ios
@@ -15,13 +27,20 @@
 #endif
 
 #include <machine.h>
+#include <string.h>
 #include <stdlib.h>
 #include "lcd_lib4.h"
 #include "iodefine.h"
 #include "onkai.h"
 #include "vect.h"
 
-/*************************** マクロ ****************************/
+/************************************ マクロ *************************************************/
+//チャタリング除去
+#define CHATTERING_WAIT_MS 300
+
+//AIの移動速度
+#define AI_MOVE_PERIOD_MS 300
+
 //ロータリーエンコーダー
 #define PULSE_DIFF_PER_CLICK 4 //1クリックの位相計数
 #define UINT16T_MAX 65535      //MTU1.TCNTの最大値...符号なし16ビット
@@ -40,29 +59,85 @@
 #define MAT_HEIGHT 8 //縦のコマ数
 
 //移動オプション
-#define MOVE_TYPE_UP_DOWN (PORT5.PIDR.BIT.B0 == 0) //上下方向移動モード
-/**************************************************************/
+#define MOVE_TYPE_UP_DOWN (PORTH.PIDR.BIT.B3 == 0) //上下方向移動モード
+
+//AIの先読みの回数
+#define AI_DEPTH 5
+
+//評価関数の重み定義
+#define POS_WEIGHT      7   // 位置評価の重み
+#define MOBILITY_WEIGHT 3   // 配置可能数の重み
+#define STABLE_WEIGHT   30  // 確定石の重み
+/********************************************************************************************/
 
 
-/**************************** 定数 ******************************/
+/************************************ 定数 *************************************************/
 //置き判定の時の8方向の移動量
 //                        上       下       左       右      左上      左下     右上     右下
-const int dxdy[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
+static const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
 
 //KEY = C majスケール
-const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
-/****************************************************************/
+static const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
+
+//盤面の重み計算. はじっこの方が重みが大きい.
+static const int POSITION_WEIGHTS[MAT_HEIGHT][MAT_WIDTH] = 
+{
+    {120, -40,  20,  10,  10,  20, -40, 120},
+    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
+    { 20,  -5,  15,  10,  10,  15,  -5,  20},
+    { 10,  -5,  10,   5,   5,  10,  -5,  10},
+    { 10,  -5,  10,   5,   5,  10,  -5,  10},
+    { 20,  -5,  15,  10,  10,  15,  -5,  20},
+    {-40, -50,  -5,  -5,  -5,  -5, -50, -40},
+    {120, -40,  20,  10,  10,  20, -40, 120}
+};
+/*******************************************************************************************/
 
 
-/*************************** 型定義 ****************************/
+/**************************************** 型定義 ********************************************/
 //オセロの状態管理
-enum State{
-    INIT,
-    MOVE,
-    PLACE,
-    FLIP,
-    TURN_OVER,
-    GAME_OVER
+enum State {
+    //初期化フェーズ
+    INIT_HW,
+    INIT_GAME,
+
+	SELECT_VS,
+	SELECT_WAIT,
+
+    //ターン開始フェーズ
+    TURN_START,
+    TURN_CHECK,
+
+    //AI思考フェーズ
+    AI_THINK,
+
+    //入力フェーズ
+    INPUT_WAIT,
+    INPUT_READ,
+
+    //AI移動フェーズ
+    AI_MOVE,
+
+    //配置フェーズ
+    PLACE_CHECK,
+    PLACE_OK,
+    PLACE_NG,
+
+    //反転フェーズ
+    FLIP_CALC,
+    FLIP_RUN,
+
+    //ターン終了フェーズ
+    TURN_SWITCH,
+    TURN_COUNT,
+    TURN_JUDGE,
+    TURN_SHOW,
+
+    //ゲーム終了フェーズ
+    END_CALC,
+    END_SHOW,
+    END_WAIT,
+    END_RESET
 };
 
 //コマが動く方角
@@ -84,34 +159,53 @@ enum stone_color{
 struct Rotary{
     unsigned int current_cnt; //現在のカウント数を保持
     unsigned int prev_cnt;    //過去のカウント数を保持
-};
-
-//コマ
-struct Stone{
-    unsigned char stone[MAT_HEIGHT]; //各列のビットマスクでコマを表現
-    int count;                       //そのコマの数
-    int can_place;                   //置けるところはあるか？
+    int dir;
 };
 
 //カーソル
 struct Cursor{
     int x;                  //x座標
     int y;                  //y座標
+    int dest_x;             //目的地のx座標
+    int dest_y;             //目的地のy座標
     enum stone_color color; //カーソルの色
+};
+
+//プレイヤー情報
+struct Player{
+	int placeable_count; //配置可能数
+	int result;          //最終的なコマの保有数
+};
+
+//ゲーム状態
+struct Game{
+	int count_to_reset;   //リセットボタンのカウント数
+	int is_buzzer_active; //サウンドはオンかオフか？
+	int is_vs_AI;         //AI対戦モードか？
+	int is_AI_turn;       //AIのターンか？
+	int is_skip;          //スキップか？
 };
 /****************************************************************************************/
 
 
-/************************************* グローバル変数 *************************************/
-volatile unsigned long tc_1ms;            //1msタイマーカウンター
-volatile unsigned long tc_2ms;            //2msタイマーカウンター
-volatile unsigned long tc_10ms;           //10msタイマーカウンター
-volatile unsigned long tc_IRQ;            //IRQ発生時のタイマカウンター
-volatile unsigned char IRQ1_flag;         //IRQ1発生フラグ(sw7)
-volatile unsigned int  beep_period_ms;    //ブザーを鳴らす時間(1ms基準)
-volatile unsigned int  screen[MAT_WIDTH]; //描画データ. 上位8ビットに赤, 下位8ビットに緑のstoneデータを格納する.
-volatile struct        Stone red, green;  //Stoneインスタンス
-volatile struct        Cursor cursor;     //Cursorインスタンス
+/************************************* 割り込み使用グローバル変数 *************************************/
+static volatile unsigned long tc_1ms;                                    //1msタイマーカウンター
+static volatile unsigned long tc_2ms;                                    //2msタイマーカウンター
+static volatile unsigned long tc_10ms;                                   //10msタイマーカウンター
+static volatile unsigned long tc_IRQ;                                    //IRQ発生時のタイマカウンター
+static volatile unsigned char IRQ1_flag;                                 //IRQ1発生フラグ(sw7)
+static volatile unsigned int  beep_period_ms;                            //ブザーを鳴らす時間(1ms基準)
+static volatile enum          stone_color screen[MAT_HEIGHT][MAT_WIDTH]; //割り込みで描画に使用.
+static volatile struct   Game *Game_inst_ISR;                            //ISR用Gameインスタンス. IRQ0で使用.
+static volatile struct        Cursor cursor;                             //Cursorインスタンス
+/*************************************************************************************/
+
+
+/************************************* AI推論用グローバル変数 *************************************/
+static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH]; //AIシミュレーションバッファ
+static int ai_entry_data[64 * 2];                      //座標候補
+static int ai_entry_idx[64];                           //ソートに対応させるための座標配列のインデックス
+static int ai_scores[64];                              //座標評価
 /*************************************************************************************/
 
 
@@ -119,7 +213,8 @@ volatile struct        Cursor cursor;     //Cursorインスタンス
 /********************************** ハードウェア初期化 ***********************************/
 void init_PORT(void)
 {
-    PORT5.PDR.BIT.B0 = 0;
+    PORTH.PDR.BIT.B0 = 0;
+    PORTH.PDR.BIT.B3 = 0;
     PORT1.PDR.BYTE = 0xE0;
     PORTE.PDR.BYTE = 0xFF;
 }
@@ -195,6 +290,23 @@ void init_CMT2(void)
     CMT.CMSTR1.BIT.STR2 = 1;
 }
 
+void init_IRQ0(void)
+{
+	IEN(ICU, IRQ0) = 0;
+	ICU.IRQFLTE0.BIT.FLTEN0 = 0;
+	ICU.IRQFLTC0.BIT.FCLKSEL0 = 3;
+	PORTH.PDR.BIT.B1 = 0;
+	PORTH.PMR.BIT.B1 = 1;
+	MPC.PWPR.BIT.B0WI = 0;
+	MPC.PWPR.BIT.PFSWE = 1;
+	MPC.PH1PFS.BIT.ISEL = 1;
+	ICU.IRQCR[0].BIT.IRQMD = 1;
+	ICU.IRQFLTE0.BIT.FLTEN0 = 1;
+	IR(ICU, IRQ0) = 0;
+	IEN(ICU, IRQ0) = 1;
+	IPR(ICU, IRQ0) = 1;
+}
+
 void init_IRQ1(void)
 {
 	IEN(ICU, IRQ1) = 0;
@@ -251,7 +363,22 @@ void init_MTU1(void)
 	MTU.TSTR.BIT.CST1 = 1;
 }
 
-void init_HARDWARE(void)
+void init_AD0(void)
+{
+    SYSTEM.PRCR.WORD = 0xA502;
+    MSTP(S12AD) = 0;
+    SYSTEM.PRCR.WORD = 0xA500;
+    PORT4.PMR.BIT.B0 = 1;
+    S12AD.ADCSR.BIT.ADIE = 0;
+    S12AD.ADANSA.BIT.ANSA0 = 1;
+    S12AD.ADCSR.BIT.ADCS = 0;
+    MPC.PWPR.BIT.B0WI = 0;
+    MPC.PWPR.BIT.PFSWE = 1;
+    MPC.P40PFS.BIT.ASEL = 1;
+    MPC.PWPR.BIT.PFSWE = 0;
+}
+
+void init_RX210(void)
 {
     init_CLK();
     init_LCD();
@@ -259,16 +386,18 @@ void init_HARDWARE(void)
     init_CMT0();
     init_CMT1();
     init_CMT2();
+    init_IRQ0();
     init_IRQ1();
     init_BUZZER();
     init_MTU1();
+    init_AD0();
     setpsw_i();
 }
 /***********************************************************************************/
 /*********************************** ブザー ******************************************/
-void beep(unsigned int tone, unsigned int interval)
+void beep(unsigned int tone, unsigned int interval, int active)
 {
-    if (tone)
+    if (tone && active)
     {
         MTU.TSTR.BIT.CST0 = 0;
         MTU0.TGRA = tone;
@@ -284,19 +413,10 @@ void beep(unsigned int tone, unsigned int interval)
 }
 
 /********************************* LCD表示 ******************************************/
-void init_lcd_show(void)
-{
-  lcd_clear();
-  lcd_xy(4, 1);
-  lcd_puts("othello");
-
-  flush_lcd();
-}
-
 void lcd_show_whose_turn(enum stone_color sc)
 {
     lcd_xy(1, 2);
-    lcd_puts("            ");
+    lcd_puts("                ");
     lcd_xy(1, 2);
     lcd_puts("TURN : ");
     lcd_puts((sc == stone_red) ? "RED" : "GREEN");
@@ -306,7 +426,7 @@ void lcd_show_whose_turn(enum stone_color sc)
 void lcd_show_skip_msg(void)
 {
     lcd_xy(1, 2);
-    lcd_puts("            ");
+    lcd_puts("                ");
     lcd_xy(1, 2);
     lcd_puts("SKIP PUSH SW7");
     flush_lcd();
@@ -339,7 +459,7 @@ void lcd_show_winner(int red_stone_count, int green_stone_count)
 void lcd_show_confirm(void)
 {
     lcd_clear();
-    lcd_xy(4, 1);
+    lcd_xy(5, 1);
     lcd_puts("othello");
     lcd_xy(1, 2);
     lcd_puts("NEW -> PUSH SW7");
@@ -378,19 +498,6 @@ void col_out(int col, unsigned int rg_data)
 
 
 /*********************************** ロータリーエンコーダ ***********************************/
-//位相計数用レジスタのカウント数を0初期化
-void clear_pulse_diff_cnt(void)
-{
-    MTU1.TCNT = 0;
-}
-
-//構造体初期化
-void init_Rotary(struct Rotary *r)
-{
-    r->current_cnt = 0;
-    r->prev_cnt    = 0;
-}
-
 //位相計数用レジスタからカウント数を読み取る
 unsigned int read_rotary(void)
 {
@@ -425,71 +532,37 @@ int is_rotary_turned_right(struct Rotary *r)
 /**************************************************************************************/
 
 
-/************************************* オセロ ********************************************/
-/************************************** コマ ********************************************* */
-//Stone初期化
-void init_Stone(void)
-{
-    int i;
-
-    //置きコマ全撤去
-    for(i = 0; i < MAT_WIDTH; i++)
-    {
-        red.stone[i]   = 0;
-        green.stone[i] = 0;
-    }
-
-    red.count   = 0;
-    green.count = 0;
-
-    red.can_place   = 1;
-    green.can_place = 1;
-}
-
-//指定した色のインスタンスを取得
-volatile struct Stone *get_Stone_instance(enum stone_color sc)
-{
-	return (sc == stone_red) ? &red : &green;
-}
-
+/************************************** コマ/盤面 ********************************************* */
 //何も置かれてないか, または何色が置かれているか
-enum stone_color read_stone_at(int x, int y)
+enum stone_color read_stone_at(enum stone_color brd[][MAT_WIDTH], int x, int y)
 {
-    if(red.stone[x] & (1 << y))
-    {
-        return stone_red;
-    }
-    else if(green.stone[x] & (1 << y))
-    {
-        return stone_green;
-    }
-    else
-    {
-        return stone_black;
-    }
+   return brd[y][x];
 }
 
 //指定した色のコマを置く
-void place(int x, int y, enum stone_color sc)
+void place(enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
 {
-    get_Stone_instance(sc)->stone[x] |= (1 << y);
+    brd[y][x] = sc;
 }
 
 //指定した座標のコマを消す
-void delete(int x, int y)
-{   //赤緑どちらも消す
-    red.stone[x]   &= ~(1 << y);
-    green.stone[x] &= ~(1 << y);
+void delete(enum stone_color brd[][MAT_WIDTH], int x, int y)
+{
+    brd[y][x] = stone_black;
 }
 
-//盤面初期化
-void init_board(void)
+//ローカルボードの内容を割込み用表示ボードにコピー（フラッシュ）
+void flush_board(enum stone_color brd[][MAT_WIDTH])
 {
-    //初期置きコマ
-    place(3, 3, stone_red);
-    place(4, 4, stone_red);
-    place(3, 4, stone_green);
-    place(4, 3, stone_green);
+    int x, y;
+
+    for(x = 0; x < MAT_WIDTH; x++)
+    {
+        for(y = 0; y < MAT_HEIGHT; y++)
+        {
+            screen[y][x] = brd[y][x];
+        }
+    }
 }
 /*****************************************************************************/
 
@@ -502,13 +575,10 @@ void set_cursor_xy(int x, int y)
     cursor.y = y;
 }
 
-void init_Cursor(void)
+//カーソルの色をセット
+void set_cursor_color(enum stone_color sc)
 {
-    //カーソルの色
-    cursor.color = stone_red;
-
-    //カーソルの初期座標
-    set_cursor_xy(5, 3);
+    cursor.color = sc;
 }
 
 //上下左右を指定してカーソルの座標を更新
@@ -588,7 +658,18 @@ void move_cursor(int direction)
 void wait_10ms(int period)
 {
     tc_10ms = 0;
-    while(tc_10ms < period);
+    while(tc_10ms < period)
+        nop();
+}
+
+//AD変換値を取得. 乱数のシード値に利用.
+unsigned int get_AD0_val(void)
+{
+    S12AD.ADCSR.BIT.ADST = 1;
+    while (1 == S12AD.ADCSR.BIT.ADST)
+        ;
+
+    return (unsigned int)S12AD.ADDR0;
 }
 
 //座標範囲外か
@@ -598,10 +679,10 @@ int is_out_of_board(int x, int y)
 }
 
 //8方向のひっくり返しフラグを作る
-//　      右下 右上  左下 左上  右   左  下   上
+//　      右下  右上  左下  左上  右    左   下   上
 //flag :  b7   b6   b5   b4   b3   b2   b1  b0
 //bit  :  0..その方角にひっくり返せない, 1..その方角にひっくり返せる
-unsigned char make_flip_dir_flag(int x, int y, enum stone_color sc)
+unsigned char make_flip_dir_flag(enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
 {
     int dir, i;
     int dx, dy;
@@ -615,12 +696,12 @@ unsigned char make_flip_dir_flag(int x, int y, enum stone_color sc)
 
         for(i = 0; i < 8; i++)
         {
-            dx += dxdy[dir][0];
-            dy += dxdy[dir][1];
+            dx += DXDY[dir][0];
+            dy += DXDY[dir][1];
 
             if(is_out_of_board(x + dx, y + dy)) break; //範囲外ならbreak
 
-            search = read_stone_at(x + dx, y + dy);    //コマの色を調査
+            search = read_stone_at(brd, x + dx, y + dy);    //コマの色を調査
 
             if(search == stone_black) break;           //何も置かれていなかったらbreak
 
@@ -640,20 +721,19 @@ unsigned char make_flip_dir_flag(int x, int y, enum stone_color sc)
 }
 
 //その場所にその色は置けるか？
-int is_placeable(int x, int y, enum stone_color sc)
+int is_placeable(enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
 {
     unsigned char flag;
 
-    if(read_stone_at(x, y) != stone_black) return 0;  //何かおいてあったらだめ
+    if(read_stone_at(brd, x, y) != stone_black) return 0;  //何かおいてあったらだめ
 
-    flag = make_flip_dir_flag(x, y, sc);              //8方向フラグ作成
+    flag = make_flip_dir_flag(brd, x, y, sc);              //8方向フラグ作成
 
     return (flag != 0x00);                            //flag != 0x00なら少なくとも1方向は挟める
 }
 
 //8方向フラグをつかって相手のコマをひっくり返す
-//置きチェックの責任はis_placeable関数にあるので一緒に使う
-void flip_stones(unsigned char flag, int x, int y, enum stone_color sc)
+void flip_stones(unsigned char flag, enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
 {
     int dir, i;
     int dx, dy;
@@ -667,101 +747,109 @@ void flip_stones(unsigned char flag, int x, int y, enum stone_color sc)
         {
             for(i = 0; i < 8; i++)
             {
-                dx += dxdy[dir][0];
-                dy += dxdy[dir][1];
+                dx += DXDY[dir][0];
+                dy += DXDY[dir][1];
 
-                search = read_stone_at(x + dx, y + dy); //コマの色をチェック
+                search = read_stone_at(brd, x + dx, y + dy); //コマの色をチェック
 
                 if(search == sc)                        //置きチェック済みなので確認するのは自分の色が出たかのみ
                 {
                     break;
                 }
 
-                delete(x + dx, y + dy); //コマを消す
+                delete(brd, x + dx, y + dy); //コマを消す
 
-                place(x + dx, y + dy, (search == stone_red) ? stone_green : stone_red); //新しくコマを置く
+                place(brd, x + dx, y + dy, (search == stone_red) ? stone_green : stone_red); //新しくコマを置く
             }
         }
     }
 }
 
-//ボード上にその色のコマが置ける場所は残っているか
-int search_placeable(enum stone_color sc)
-{
-    int x, y;
-
-    for(x = 0; x < MAT_WIDTH; x++)
-    {
-        for(y = 0; y < MAT_HEIGHT; y++)
-        {
-            if(is_placeable(x, y, sc))
-            {
-                return 1;
-            }
-        }
-    }
-
-    return 0;
-}
-
-//どっちも置けない, もしくは全部置かれた場合は終わり
-int is_game_over(void)
-{
-    return ((!red.can_place && !green.can_place) || ( red.count + green.count ) == MAT_WIDTH * MAT_HEIGHT);
-}
-
-//指定した色のコマの数を数えて更新
-void update_stone_count(enum stone_color sc)
+//ボード上にその色のコマが置ける場所はあるか
+int count_placeable(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
 {
     int x, y;
     int count = 0;
 
     for(x = 0; x < MAT_WIDTH; x++)
-	{
-		for(y = 0; y < MAT_HEIGHT; y++)
-		{
-			if(read_stone_at(x, y) == sc)
-			{
-			    count++;
-			}
-		 }
-	}
+    {
+        for(y = 0; y < MAT_HEIGHT; y++)
+        {
+            if(is_placeable(brd, x, y, sc))
+            {
+                count++;
+            }
+        }
+    }
 
-    get_Stone_instance(sc)->count = count;
+    return count;
 }
 
-//赤緑のコマを並べて結果発表
-void line_up_result(int red_stone_count, int green_stone_count, int period_10ms)
+//どっちも置けなかったらおわり
+int is_game_over(int stone1_placeable_count, int stone2_placeable_count)
 {
-	int x;
+    return (!stone1_placeable_count && !stone2_placeable_count);
+}
+
+//指定した色のコマの数を数える
+int count_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
+{
+    int x, y;
+    int count = 0;
+
+    for(x = 0; x < MAT_WIDTH; x++)
+    {
+        for(y = 0; y < MAT_HEIGHT; y++)
+        {
+            if(read_stone_at(brd, x, y) == sc)
+            {
+                count++;
+            }
+        }
+    }
+
+    return count;
+}
+
+//コマを並べて結果発表
+void line_up_result(enum stone_color brd[][MAT_WIDTH], int stone1_count, int stone2_count, int period_10ms, int *buzzer_active)
+{
+	int x, y;
 
     //コマを全撤去
 	for(x = 0; x < MAT_WIDTH; x++)
 	{
-		red.stone[x]   = 0;
-		green.stone[x] = 0;
+		for(y = 0; y < MAT_HEIGHT; y++)
+        {
+            delete(brd, x, y);
+        }
 	}
+
+    flush_board(brd);
 
 	x = 0;
 
-	while(red_stone_count || green_stone_count)
+    //最終結果をもとに再配置
+	while(stone1_count || stone2_count)
 	{
-		if(red_stone_count)
+		if(stone1_count)
 		{
-            //赤を左上から詰めていく
-            place(x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_red);
+            //片方の色を左上から詰めていく
+            place(brd, x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_red);
 
-			red_stone_count--;
+			stone1_count--;
 		}
 		else
-		{   //赤を詰め終わったら続きから緑を詰めていく
-			place(x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_green);
+		{   //詰め終わったら続きからもう片方の色を詰めていく
+			place(brd, x % MAT_WIDTH, ((MAT_WIDTH - 1) - (x / MAT_WIDTH)), stone_green);
 
-		    green_stone_count--;
+		    stone2_count--;
 		}
 
+        flush_board(brd);
+
         //x座標に合わせてドレミ
-		beep(C_SCALE[x % MAT_WIDTH], 50);
+		beep(C_SCALE[x % MAT_WIDTH], 50, *buzzer_active);
 
         //詰めの感覚を調整
 		wait_10ms(period_10ms);
@@ -769,13 +857,351 @@ void line_up_result(int red_stone_count, int green_stone_count, int period_10ms)
 		x++;
 	}
 }
-/***********************************************************************/
+
+/********************************************* AI ***********************************************/
+// 盤面の位置評価を計算
+int evaluate_position_weight(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_color)
+{
+    int x, y;
+    int ai_score = 0;
+    int opp_score = 0;
+    enum stone_color opp_color = (ai_color == stone_red) ? stone_green : stone_red;
+
+    for(y = 0; y < MAT_HEIGHT; y++)
+    {
+        for(x = 0; x < MAT_WIDTH; x++)
+        {
+            if(brd[y][x] == ai_color)
+            {
+                ai_score += POSITION_WEIGHTS[y][x];
+            }
+            else if(brd[y][x] == opp_color)
+            {
+                opp_score += POSITION_WEIGHTS[y][x];
+            }
+        }
+    }
+
+    return opp_score - ai_score;
+}
+
+// 石の数の差を計算（終盤用）
+int evaluate_stone_count(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_color)
+{
+    int x, y;
+    int ai_count = 0;
+    int opp_count = 0;
+    enum stone_color opp_color = (ai_color == stone_red) ? stone_green : stone_red;
+
+    for(y = 0; y < MAT_HEIGHT; y++)
+    {
+        for(x = 0; x < MAT_WIDTH; x++)
+        {
+            if(brd[y][x] == ai_color)
+			{
+				ai_count++;
+			}
+            else if(brd[y][x] == opp_color)
+			{
+				opp_count++;
+			}
+        }
+    }
+
+    // 相手 - 自分（小さいほど有利）
+    return opp_count - ai_count;
+}
+
+// 確定石（絶対に取られない石）の数を計算
+int count_stable_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color color)
+{
+    int stable_count = 0;
+
+    // 角の石は確定石
+    if(brd[0][0] == color) stable_count++;
+    if(brd[0][MAT_WIDTH-1] == color) stable_count++;
+    if(brd[MAT_HEIGHT-1][0] == color) stable_count++;
+    if(brd[MAT_HEIGHT-1][MAT_WIDTH-1] == color) stable_count++;
+
+    return stable_count;
+}
+
+void quick_sort_pair(int arr[], int idx[], int left, int right)
+{
+    int i, j, pivot, tmp_arr, tmp_idx;
+
+    i = left;
+    j = right;
+    pivot = arr[(left + right) / 2];
+
+    while(i <= j)
+    {
+        while (arr[i] < pivot) i++;
+        while (arr[j] > pivot) j--;
+
+        if (i <= j)
+        {
+            tmp_arr = arr[i];
+            arr[i] = arr[j];
+            arr[j] = tmp_arr;
+
+            tmp_idx = idx[i];
+            idx[i] = idx[j];
+            idx[j] = tmp_idx;
+
+            i++;
+            j--;
+        }
+    }
+
+    if (left < j) quick_sort_pair(arr, idx, left, j);
+    if (i < right) quick_sort_pair(arr, idx, i, right);
+}
+
+// n手先の盤面の評価値を計算（位置評価+配置可能数+確定石）
+// 重み係数で調整可能
+int evaluate_n_moves_ahead(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_color, int depth)
+{
+    enum stone_color opp_color;
+    int placeable_count;
+    int x, y;
+    int total_score, move_count;
+    enum stone_color (*buf)[MAT_WIDTH];
+    int position_score;
+    int ai_stable, opp_stable, stable_diff;
+
+    opp_color = (ai_color == stone_red) ? stone_green : stone_red;
+
+    if(depth <= 0)
+    {
+        // 位置評価 + 配置可能数 + 確定石の差
+        position_score = evaluate_position_weight(brd, ai_color);
+        placeable_count = count_placeable(brd, opp_color);
+        
+        // 確定石の差を計算（相手 - 自分、小さいほど有利）
+        ai_stable = count_stable_stones(brd, ai_color);
+        opp_stable = count_stable_stones(brd, opp_color);
+        stable_diff = (opp_stable - ai_stable) * STABLE_WEIGHT;
+
+        return (position_score * POS_WEIGHT + placeable_count * MOBILITY_WEIGHT + stable_diff * 10) / 10;
+    }
+
+    buf = malloc(sizeof(enum stone_color) * MAT_WIDTH * MAT_HEIGHT);
+    if(!buf) return 0;  // メモリ確保失敗時は中立的な評価を返す
+
+    placeable_count = count_placeable(brd, opp_color);
+
+    // 相手が置けない場合は、そのまま評価
+    if(placeable_count == 0)
+    {
+        int ai_stable, opp_stable, stable_diff;
+        
+        position_score = evaluate_position_weight(brd, ai_color);
+        ai_stable = count_stable_stones(brd, ai_color);
+        opp_stable = count_stable_stones(brd, opp_color);
+        stable_diff = (opp_stable - ai_stable) * STABLE_WEIGHT;
+        
+        free(buf);
+        return (position_score * POS_WEIGHT + stable_diff * 10) / 10;
+    }
+
+    total_score = 0;
+    move_count = 0;
+
+    // 相手のすべての可能な手を試して、平均を取る
+    for(y = 0; y < MAT_HEIGHT; y++)
+    {
+        for(x = 0; x < MAT_WIDTH; x++)
+        {
+            if(!is_placeable(brd, x, y, opp_color)) continue;
+
+            // 相手が手を打った後の盤面を作成
+            memcpy(buf, brd, sizeof(enum stone_color) * MAT_HEIGHT * MAT_WIDTH);
+            flip_stones(make_flip_dir_flag(buf, x, y, opp_color), buf, x, y, opp_color);
+
+            // さらに先を読む
+            total_score += evaluate_n_moves_ahead(buf, ai_color, depth - 1);
+            move_count++;
+        }
+    }
+
+    free(buf);
+
+    // 相手の全ての手の平均評価値を返す
+    return (move_count > 0) ? (total_score / move_count) : 0;
+}
+
+// AIの次の行き先を決める
+// depth: 読む手数（0=1手先、1=2手先...）
+void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, int placeable_count, int depth)
+{
+    int x, y, i;
+    int placeable;
+    int position_score;
+    enum stone_color opp_color;
+    int random, idx;
+    int best_score_count;
+
+    // スキップ = どこにも置けない場合は現在のカーソル位置を返す
+    if(!placeable_count)
+    {
+        cursor.dest_x = cursor.x;
+        cursor.dest_y = cursor.y;
+        return;
+    }
+
+    i = 0;
+    opp_color = (sc == stone_red) ? stone_green : stone_red;
+
+    // すべての配置可能な手を評価
+    for(y = 0; y < MAT_HEIGHT; y++)
+    {
+        for(x = 0; x < MAT_WIDTH; x++)
+        {
+            if(!is_placeable(brd, x, y, sc)) continue;
+
+            // 座標を記録
+            ai_entry_data[i * 2] = x;
+            ai_entry_data[i * 2 + 1] = y;
+            ai_entry_idx[i] = i;
+
+            // その手を打った後の盤面を作成
+            memcpy(ai_buf, brd, sizeof(enum stone_color) * MAT_HEIGHT * MAT_WIDTH);
+            flip_stones(make_flip_dir_flag(ai_buf, x, y, sc), ai_buf, x, y, sc);
+
+            if(depth <= 0)
+            {
+                // 1手先: 位置評価+配置可能数+確定石
+                int ai_stable, opp_stable, stable_diff;
+                
+                position_score = evaluate_position_weight(ai_buf, sc);
+                placeable = count_placeable(ai_buf, opp_color);
+                ai_stable = count_stable_stones(ai_buf, sc);
+                opp_stable = count_stable_stones(ai_buf, opp_color);
+                stable_diff = (opp_stable - ai_stable) * STABLE_WEIGHT;
+                
+                ai_scores[i] = (position_score * POS_WEIGHT + placeable * MOBILITY_WEIGHT + stable_diff * 10) / 10;
+            }
+            else
+            {
+                // n手先を読む
+                ai_scores[i] = evaluate_n_moves_ahead(ai_buf, sc, depth);
+            }
+
+            i++;
+            if(i >= placeable_count) break;
+        }
+        if(i >= placeable_count) break;
+    }
+
+    // スコアの小さい順（有利な順）にソート
+    quick_sort_pair(ai_scores, ai_entry_idx, 0, i - 1);
+
+    // 同列一位の数をチェック
+    best_score_count = 1;
+    while((best_score_count < i) && (ai_scores[0] == ai_scores[best_score_count]))
+    {
+        best_score_count++;
+    }
+
+    if(best_score_count > 1)
+    {
+        // 同列一位があったらランダムで決める
+        random = rand() % best_score_count;
+        idx = ai_entry_idx[random];
+    }
+    else
+    {
+        // 最良の手を選択
+        idx = ai_entry_idx[0];
+    }
+
+    cursor.dest_x = ai_entry_data[idx * 2];
+    cursor.dest_y = ai_entry_data[idx * 2 + 1];
+}
+/*************************************************************************************************/
 
 
-/******************************** 割込み ********************************/
+/***************************************** 初期設定 ******************************************/
+//位相計数用レジスタのカウント数初期化
+void clear_pulse_diff_cnt(void)
+{
+    MTU1.TCNT = 0;
+}
+
+//ロータリーエンコーダー情報初期化
+void init_Rotary(struct Rotary *r)
+{
+    r->current_cnt = 0;
+    r->prev_cnt    = 0;
+}
+
+//ゲーム情報初期化
+void init_Game(struct Game *g)
+{
+	g->count_to_reset   = 0;
+	g->is_buzzer_active = 1;
+	g->is_vs_AI         = 0;
+	g->is_AI_turn       = 0;
+	g->is_skip          = 0;
+}
+
+//プレイヤー情報初期化
+void init_Player(struct Player *p1, struct Player *p2)
+{
+    //オセロのルール上最初は二か所しか置けない
+	p1->placeable_count = 2;
+	p2->placeable_count = 2;
+    p1->result          = 0;
+	p2->result          = 0;
+}
+
+//盤面初期化
+void init_board(enum stone_color brd[][MAT_WIDTH])
+{   int x, y;
+
+    //コマ全撤去
+    for(x = 0;x < MAT_WIDTH; x++)
+    {
+        for(y = 0; y < MAT_HEIGHT; y++)
+        {
+            delete(brd, x, y);
+        }
+    }
+
+    //真ん中に４つ置く
+    place(brd, 3, 3, stone_red);
+    place(brd, 4, 4, stone_red);
+    place(brd, 3, 4, stone_green);
+    place(brd, 4, 3, stone_green);
+}
+
+//カーソル初期化
+void init_Cursor(int x, int y, enum stone_color sc)
+{
+    set_cursor_color(sc);
+    set_cursor_xy(x, y);
+}
+
+//LCD表示初期化
+void init_lcd_show(enum stone_color sc)
+{
+  lcd_clear();
+  lcd_xy(5, 1);
+  lcd_puts("othello");
+  lcd_xy(1, 2);
+  lcd_puts("VS >FRIEND : AI");
+  flush_lcd();
+}
+/*************************************************************************************************/
+
+
+/****************************************** 割込み ************************************************/
 // CMT0 CMI0 1msタイマ割込み
 void Excep_CMT0_CMI0(void)
 {
+	tc_1ms++;
+
 	beep_period_ms--;
 
 	if(!beep_period_ms) //指定時間たったら音を止める
@@ -787,42 +1213,45 @@ void Excep_CMT0_CMI0(void)
 // CMT1 CMI1 2msタイマ割込み
 void Excep_CMT1_CMI1(void)
 {
-	int cn; //column number
+	int x, y;
+    unsigned int rg_data = 0x0000;
 
     tc_2ms++;
 
-	cn = tc_2ms % 8;
+	x = tc_2ms % MAT_WIDTH;
 
-    //赤緑のコマでスクリーンを上書き
-    screen[cn] = (red.stone[cn] << 8) | (green.stone[cn]);
-
-    if(cursor.color != stone_black)
+    for(y = 0; y < MAT_HEIGHT; y++)
     {
-        //0.15秒おきに移動中のコマを点滅表示
-        if( (tc_2ms / (150 / 2) ) % 2)  //点灯
+        if(screen[y][x] == stone_red)
         {
-            //カーソルを追加
-            if(cursor.color == stone_red)
-            {
-                screen[cursor.x] |= 1 << (cursor.y + 8);
-            }
-            else if(cursor.color == stone_green)
-            {
-                screen[cursor.x] |= 1 << cursor.y;
-            }
+            rg_data |= (1 << (y + 8));
         }
-        else //消灯
-        {   
-            //カーソルの下に置きコマがあったら
-            if(  (cn == cursor.x)  && ((red.stone[cn] | green.stone[cn]) & (1 << cursor.y)))
-            {   //その座標の置きコマも点滅させる
-                screen[cn] = ((red.stone[cn] & ~(1 << cursor.y)) << 8) | ((green.stone[cn]) & ~(1 << cursor.y));
-            }
+        else if(screen[y][x] == stone_green)
+        {
+            rg_data |= (1 << y);
         }
     }
 
+    if((x != cursor.x) || (cursor.color == stone_black))
+    {
+        //マトリックスLED出力
+        col_out(x, rg_data);
+
+        return;
+    }
+
+    //0.15秒おきにカーソルを点滅させる
+    if((tc_2ms / (150 / 2)) % 2)
+    {
+        rg_data |= (cursor.color == stone_red) ? (1 << (cursor.y + 8)) : (1 << cursor.y);
+    }
+    else if(rg_data & ((1 << (cursor.y + 8)) | (1 << cursor.y)))
+    {
+        rg_data &= ~((1 << (cursor.y + 8)) | (1 << cursor.y));
+    }
+
     //マトリックスLED出力
-    col_out(cn, screen[cn]);
+    col_out(x, rg_data);
 }
 
 // CMT2 CMI2 10msタイマ割込み
@@ -831,13 +1260,26 @@ void Excep_CMT2_CMI2(void)
 	tc_10ms++;
 }
 
+// ICU IRQ0 SW6立下がり割込み
+void Excep_ICU_IRQ0(void)
+{
+	unsigned long now = tc_1ms;
+
+	//前のIRQ発生から指定時間経ってなかったらreturn
+	if(now - tc_IRQ < CHATTERING_WAIT_MS) return;
+
+    Game_inst_ISR->is_buzzer_active ^= 1;
+
+	tc_IRQ = now;
+}
+
 // ICU IRQ1 SW7立下がり割込み
 void Excep_ICU_IRQ1(void)
 {
-	unsigned long now = tc_10ms;
+	unsigned long now = tc_1ms;
 
-    //前のIRQ発生から0.3秒経ってなかったらreturn
-	if(now - tc_IRQ < 30) return;
+    //前のIRQ発生から指定時間経ってなかったらreturn
+	if(now - tc_IRQ < CHATTERING_WAIT_MS) return;
 
     IRQ1_flag = 1;
 
@@ -850,141 +1292,321 @@ void Excep_ICU_IRQ1(void)
 /******************************************** メイン ***********************************************/
 void main(void)
 {
-    enum   State  state;                //状態管理
-    struct Rotary rotary;               //ロータリーエンコーダー
-    unsigned char flip_dir_flag = 0x00; //置きチェック8方向フラグ
+    //状態管理
+    enum State state = INIT_HW;
 
-    init_HARDWARE();      //ハードウェア初期化
+    //ボード色情報
+    enum stone_color board[MAT_HEIGHT][MAT_WIDTH];
 
-    state = INIT;
+	//ゲーム情報
+    struct Game game;
+
+    //赤緑プレイヤー
+    struct Player red, green;
+
+    //ロータリーエンコーダ入力
+    struct Rotary rotary;
+
+    //コマ反転用フラグ
+    unsigned char flip_dir_flag;
+
+    //経過時間計測スタート
+    unsigned long start_tc = tc_1ms;
+
+    //割り込み(IRQ0)用インスタンス
+    Game_inst_ISR = &game;
+
+    init_RX210();
 
     while(1)
     {
+    	if(tc_1ms - start_tc > 1000)
+    	{
+    		if(!PORTH.PIDR.BIT.B0)
+			{
+    			beep(DO1, 50, game.is_buzzer_active);
+				game.count_to_reset++;
+			}
+			else
+			{
+				game.count_to_reset = 0;
+			}
+
+    		if(game.count_to_reset > 2) //3秒長押しされたらリセット
+    		{
+    			beep(DO2, 300, game.is_buzzer_active);
+    			state = INIT_HW;
+    		}
+			
+    		start_tc = tc_1ms;
+    	}
+
         switch(state)
         {
-            case INIT:
-
-                clear_pulse_diff_cnt();             //位相計数レジスタを0クリア
-                init_Rotary(&rotary);               //ロータリーエンコーダー構造体初期化
-                init_Stone();                       //コマ構造体初期化
-                init_Cursor();                      //カーソル構造体初期化
-                init_board();                       //ボード配置初期化
-                init_lcd_show();                    //LCD表示初期化
-                lcd_show_whose_turn(cursor.color);
-
-                state = MOVE;
-
+            //********** 初期化フェーズ **********//
+            case INIT_HW:
+                clear_pulse_diff_cnt();
+                init_Rotary(&rotary);
+                state = INIT_GAME;
                 break;
-            case MOVE:
 
-                if(!IRQ1_flag)
+            case INIT_GAME:
+                srand(get_AD0_val());
+                init_Game(&game);
+                init_Player(&red, &green);
+                init_board(board);
+                init_Cursor(5, 3, stone_red);
+                init_lcd_show(cursor.color);
+                flush_board(board);
+                state = SELECT_WAIT;
+                break;
+            case SELECT_WAIT:
+
+                if(IRQ1_flag)
+				{
+                	beep(DO2, 200, game.is_buzzer_active);
+                	lcd_show_whose_turn(cursor.color);
+					state = TURN_START;
+					IRQ1_flag = 0;
+				}
+				else
+				{
+					state = SELECT_VS;
+				}
+                break;
+            case SELECT_VS:
+
+				rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
+
+				if(rotary.current_cnt != rotary.prev_cnt)
+				{
+					beep(DO3, 50, game.is_buzzer_active);
+					game.is_vs_AI ^= 1;
+                    
+                    if(game.is_vs_AI)
+				    {
+                        lcd_xy(1, 2);
+                        lcd_puts("VS  FRIEND :>AI");
+					    flush_lcd();
+				    }
+				    else
+				    {
+					    lcd_xy(1, 2);
+                        lcd_puts("VS >FRIEND : AI");
+					    flush_lcd();
+				    }
+				}
+
+				rotary.prev_cnt = rotary.current_cnt;
+
+				state = SELECT_WAIT;
+
+            	break;
+
+            //********** ターン開始フェーズ **********//
+            case TURN_START:
+                state = TURN_CHECK;
+                break;
+
+            case TURN_CHECK:
+                if(game.is_AI_turn && game.is_vs_AI)
                 {
-                    rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
-
-                    if(is_rotary_turned_left(&rotary))
-                    {
-                        move_cursor((MOVE_TYPE_UP_DOWN)  ? DOWN : LEFT);
-                        beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
-                    }
-                    else if(is_rotary_turned_right(&rotary))
-                    {
-                        move_cursor((MOVE_TYPE_UP_DOWN)  ? UP   : RIGHT);
-                        beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100);
-                    }
-
-                    rotary.prev_cnt = rotary.current_cnt;
+                    state = AI_THINK;
                 }
                 else
                 {
+                    state = INPUT_WAIT;
+                }
+                break;
+
+            //********** AI思考フェーズ **********//
+            case AI_THINK:
+                set_AI_cursor_dest(board, cursor.color, (cursor.color == stone_red) ? red.placeable_count : green.placeable_count, AI_DEPTH);
+                state = AI_MOVE;
+                break;
+
+            //********** プレイヤー入力フェーズ **********//
+            case INPUT_WAIT:
+
+                if(IRQ1_flag)
+                {
+                    state = PLACE_CHECK;
                     IRQ1_flag = 0;
 
-                    state = PLACE;
-                }
-
-                break;
-            case PLACE:
-
-                if(get_Stone_instance(cursor.color)->can_place)
-                {
-                    if(is_placeable(cursor.x, cursor.y, cursor.color))
-                    {
-                        beep(DO2, 200);
-
-                        place(cursor.x, cursor.y, cursor.color);
-
-                        flip_dir_flag = make_flip_dir_flag(cursor.x, cursor.y, cursor.color);
-
-                        state = FLIP;
-                    }
-                    else
-                    {
-                        beep(DO0, 100);
-
-                        state = MOVE;
-                    }
                 }
                 else
                 {
-                    state = TURN_OVER;
+                    state = INPUT_READ;
                 }
 
                 break;
-            case FLIP:
+            case INPUT_READ:
+                rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
 
-                flip_stones(flip_dir_flag, cursor.x, cursor.y, cursor.color);
+                if(is_rotary_turned_left(&rotary))
+                {
+                    move_cursor((MOVE_TYPE_UP_DOWN) ? DOWN : LEFT);
+                    beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100, game.is_buzzer_active);
+                }
+                else if(is_rotary_turned_right(&rotary))
+                {
+                    move_cursor((MOVE_TYPE_UP_DOWN) ? UP : RIGHT);
+                    beep(C_SCALE[(MOVE_TYPE_UP_DOWN) ? cursor.y : cursor.x], 100, game.is_buzzer_active);
+                }
 
-                state = TURN_OVER;
+                rotary.prev_cnt = rotary.current_cnt;
+
+                state = INPUT_WAIT;
 
                 break;
-            case TURN_OVER:
-
-                update_stone_count(stone_red);
-                update_stone_count(stone_green);
-
-                cursor.color = ((cursor.color == stone_red) ? stone_green : stone_red);
-
-                get_Stone_instance(cursor.color)->can_place = search_placeable(cursor.color);
-
-                if(is_game_over())
+            //********** AI自動移動フェーズ **********//
+            case AI_MOVE:
+                if(cursor.x < cursor.dest_x)
                 {
-                    state = GAME_OVER;
+                    beep(C_SCALE[cursor.x], 100, game.is_buzzer_active);
+                    move_cursor(RIGHT);
+                }
+                else if(cursor.x > cursor.dest_x)
+                {
+                    beep(C_SCALE[cursor.x], 100, game.is_buzzer_active);
+                    move_cursor(LEFT);
+                }
+
+                if(cursor.y < cursor.dest_y)
+                {
+                    beep(C_SCALE[cursor.y], 100, game.is_buzzer_active);
+                    move_cursor(UP);
+                }
+                else if(cursor.y > cursor.dest_y)
+                {
+                    beep(C_SCALE[cursor.y], 100, game.is_buzzer_active);
+                    move_cursor(DOWN);
+                }
+
+                if((cursor.x == cursor.dest_x) && (cursor.y == cursor.dest_y))
+                {
+                    state = PLACE_CHECK;
+                }
+
+                wait_10ms(AI_MOVE_PERIOD_MS / 10);
+                break;
+
+            //********** コマ配置フェーズ **********//
+            case PLACE_CHECK:
+                if(game.is_skip)
+                {
+                    // スキップの場合は配置せずにターン終了
+                    state = TURN_SWITCH;
+                }
+                else if(is_placeable(board, cursor.x, cursor.y, cursor.color))
+                {
+                    state = PLACE_OK;
                 }
                 else
                 {
-                    if(get_Stone_instance(cursor.color)->can_place)
-                    {
-                       lcd_show_whose_turn(cursor.color);
-                    }
-                    else
-                    {
-                        lcd_show_skip_msg();
-                    }
+                    state = PLACE_NG;
+                }
+                break;
 
-                    state = MOVE;
+            case PLACE_OK:
+            	beep(DO2, 100, game.is_buzzer_active);
+                place(board, cursor.x, cursor.y, cursor.color);
+                flush_board(board);
+                state = FLIP_CALC;
+                break;
+
+            case PLACE_NG:
+                beep(DO0, 100, game.is_buzzer_active);
+                // プレイヤーの場合は入力待ちに戻る、AIの場合は理論上ここに来ない
+                state = (game.is_AI_turn) ? TURN_START : INPUT_WAIT;
+                break;
+
+            //********** コマ反転フェーズ **********//
+            case FLIP_CALC:
+                flip_dir_flag = make_flip_dir_flag(board, cursor.x, cursor.y, cursor.color);
+                state = FLIP_RUN;
+                break;
+
+            case FLIP_RUN:
+                flip_stones(flip_dir_flag, board, cursor.x, cursor.y, cursor.color);
+                flush_board(board);
+                state = TURN_SWITCH;
+                break;
+
+            //********** ターン終了フェーズ **********//
+            case TURN_SWITCH:
+            	cursor.color = ((cursor.color == stone_red) ? stone_green : stone_red);
+                state = TURN_COUNT;
+                break;
+
+            case TURN_COUNT:
+                red.placeable_count   = count_placeable(board, stone_red);
+                green.placeable_count = count_placeable(board, stone_green);
+                state = TURN_JUDGE;
+                break;
+
+            case TURN_JUDGE:
+                if(is_game_over(red.placeable_count, green.placeable_count))
+                {
+                    state = END_CALC;
+                }
+                else
+                {
+                    game.is_skip = (cursor.color == stone_red) ? !red.placeable_count : !green.placeable_count;
+                    state = TURN_SHOW;
+                }
+                break;
+
+            case TURN_SHOW:
+                if(game.is_skip)
+                {
+                    lcd_show_skip_msg();
+                }
+                else
+                {
+                    lcd_show_whose_turn(cursor.color);
                 }
 
+                //AIプレイヤーの切り替え
+                if(game.is_vs_AI) game.is_AI_turn ^= 1;
+                state = TURN_START;
                 break;
-            case GAME_OVER:
 
+            //********** ゲーム終了フェーズ **********//
+            case END_CALC:
+                red.result   = count_stones(board, stone_red);
+                green.result = count_stones(board, stone_green);
+                state = END_SHOW;
+                break;
+
+            case END_SHOW:
                 lcd_clear();
                 lcd_puts("Winner is ...");
                 flush_lcd();
 
-                cursor.color = stone_black;
-                line_up_result(red.count, green.count, 20);
+                set_cursor_color(stone_black);        //0.2秒間隔でコマを詰める
+                line_up_result(board, red.result, green.result, 20, &game.is_buzzer_active); 
 
-                lcd_show_winner(red.count, green.count);
+                lcd_show_winner(red.result, green.result);
 
                 wait_10ms(300);
 
                 lcd_show_confirm();
-
-                while(!IRQ1_flag);
-                IRQ1_flag = 0;
-
-                state = INIT;
-
+                state = END_WAIT;
                 break;
+
+            case END_WAIT:
+                if(IRQ1_flag)
+                {
+                    IRQ1_flag = 0;
+                    state = END_RESET;
+                }
+                break;
+
+            case END_RESET:
+                state = INIT_HW;
+                break;
+
             default:
                 break;
         }
