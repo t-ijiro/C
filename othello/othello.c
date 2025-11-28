@@ -26,13 +26,13 @@
 //_SINT ios_base::Init::init_cnt;       // Remove the comment when you use ios
 #endif
 
-#include <machine.h>
 #include <string.h>
 #include <stdlib.h>
-#include "lcd_lib4.h"
+#include <machine.h>
 #include "iodefine.h"
-#include "onkai.h"
 #include "vect.h"
+#include "lcd_lib4.h"
+#include "onkai.h"
 
 /************************************ マクロ *************************************************/
 //チャタリング除去
