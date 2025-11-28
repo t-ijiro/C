@@ -10,18 +10,6 @@
 
 #include "iodefine.h"
 
-typedef enum
-{
-    STRING,
-    CHAR,
-    U_CHAR,
-    INT,
-    U_INT,
-    LONG,
-    U_LONG
-}
-DATA_TYPE;
-
 #define LCD_E	PORTD.PODR.BIT.B3
 #define LCD_RS	PORTD.PODR.BIT.B0
 #define LCD_RW	PORTD.PODR.BIT.B1
@@ -49,14 +37,6 @@ void lcd_puts(char *str);
 void lcd_xy(unsigned char x, unsigned char y);
 void lcd_dataout(unsigned long data);
 void set_pattern(void);
-int my_strlen(const char *str);
-void lcd_put_blank(int num_blank);
-void lcd_clear_line(unsigned char y);
-unsigned char lcd_get_center_x(const char *str);
-void lcd_puts_align_center(unsigned char y, char *str);
-void lcd_print_at(unsigned char clear_line, unsigned char x, unsigned char y, void *data, DATA_TYPE data_type);
-
-
 
 //Groval variables
 #define BUFFER_SIZE 32
@@ -249,86 +229,5 @@ void lcd_dataout(unsigned long data){
 	flush_lcd();
 
 }
-
-int my_strlen(const char *str)
-{
-    int len = 0;
-
-    while('\0' != *(str++))
-    {
-        len++;
-    }
-
-    return len;
-}
-
-void lcd_put_blank(int num_blank)
-{
-    int i;
-
-    for(i = 0; i < num_blank; i++)
-    {
-        lcd_put(' ');
-    }
-}
-
-void lcd_clear_line(unsigned char y)
-{
-    lcd_xy(1, y);
-    lcd_put_blank(16);
-}
-
-unsigned char lcd_get_center_x(const char *str)
-{
-    int len = my_strlen(str);
-
-    return (((16 - len) / 2) + 1);
-}
-
-void lcd_puts_align_center(unsigned char y, char *str)
-{
-    unsigned char cent_x = lcd_get_center_x(str);
-
-    lcd_clear_line(y);
-    lcd_xy(cent_x, y);
-    lcd_puts(str);
-}
-
-void lcd_print_at(unsigned char clear_line, unsigned char x, unsigned char y, void *data_ptr, DATA_TYPE data_type)
-{
-    if(clear_line)
-    {
-        lcd_clear_line(y);
-    }
-
-    lcd_xy(x, y);
-
-    switch(data_type)
-    {
-        case STRING:
-            lcd_puts((char *)data_ptr);
-            break;
-        case CHAR:
-            lcd_put(*((char *)data_ptr));
-            break;
-        case U_CHAR:
-            lcd_dataout(*((unsigned char *)data_ptr));
-            break;
-        case INT:
-            lcd_dataout(*((int *)data_ptr));
-            break;
-        case U_INT:
-            lcd_dataout(*((unsigned int *)data_ptr));
-            break;
-        case LONG:
-            lcd_dataout(*((long *)data_ptr));
-            break;
-        case U_LONG: lcd_dataout(*((unsigned long *)data_ptr));
-            break;
-        default:
-           break;
-    }
-}
-
 
 #endif /* LCD_LIB4_H_ */
