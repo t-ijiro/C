@@ -58,6 +58,9 @@
 #define MAT_WIDTH  8 //横のコマ数
 #define MAT_HEIGHT 8 //縦のコマ数
 
+//リセットボタン オン
+#define RESET_BTN_ON (PORTH.PIDR.BIT.B0 == 0)
+
 //移動オプション
 #define MOVE_TYPE_UP_DOWN (PORTH.PIDR.BIT.B3 == 0) //上下方向移動モード
 
@@ -72,7 +75,7 @@
 /********************************************************************************************/
 
 
-/************************************ 定数 *************************************************/
+/********************************************* 定数 *************************************************/
 //置き判定の時の8方向の移動量
 //                        上       下       左       右      左上      左下     右上     右下
 static const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
@@ -1321,9 +1324,10 @@ void main(void)
 
     while(1)
     {
+		//リセットボタン(sw5)を1秒間隔で監視
     	if(tc_1ms - start_tc > 1000)
     	{
-    		if(!PORTH.PIDR.BIT.B0)
+    		if(RESET_BTN_ON)
 			{
     			beep(DO1, 50, game.is_buzzer_active);
 				game.count_to_reset++;
@@ -1333,7 +1337,7 @@ void main(void)
 				game.count_to_reset = 0;
 			}
 
-    		if(game.count_to_reset > 2) //3秒長押しされたらリセット
+    		if(game.count_to_reset > 2) //2～3秒長押しされたらリセット
     		{
     			beep(DO2, 300, game.is_buzzer_active);
     			state = INIT_HW;
@@ -1346,12 +1350,14 @@ void main(void)
         {
             //********** 初期化フェーズ **********//
             case INIT_HW:
+				
                 clear_pulse_diff_cnt();
                 init_Rotary(&rotary);
                 state = INIT_GAME;
                 break;
 
             case INIT_GAME:
+				
                 srand(get_AD0_val());
                 init_Game(&game);
                 init_Player(&red, &green);
@@ -1361,6 +1367,7 @@ void main(void)
                 flush_board(board);
                 state = SELECT_WAIT;
                 break;
+			
             case SELECT_WAIT:
 
                 if(IRQ1_flag)
@@ -1374,7 +1381,9 @@ void main(void)
 				{
 					state = SELECT_VS;
 				}
+				
                 break;
+			
             case SELECT_VS:
 
 				rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
@@ -1406,10 +1415,12 @@ void main(void)
 
             //********** ターン開始フェーズ **********//
             case TURN_START:
+				
                 state = TURN_CHECK;
                 break;
 
             case TURN_CHECK:
+				
                 if(game.is_AI_turn && game.is_vs_AI)
                 {
                     state = AI_THINK;
@@ -1418,10 +1429,12 @@ void main(void)
                 {
                     state = INPUT_WAIT;
                 }
+				
                 break;
 
             //********** AI思考フェーズ **********//
             case AI_THINK:
+				
                 set_AI_cursor_dest(board, cursor.color, (cursor.color == stone_red) ? red.placeable_count : green.placeable_count, AI_DEPTH);
                 state = AI_MOVE;
                 break;
@@ -1433,7 +1446,6 @@ void main(void)
                 {
                     state = PLACE_CHECK;
                     IRQ1_flag = 0;
-
                 }
                 else
                 {
@@ -1441,7 +1453,9 @@ void main(void)
                 }
 
                 break;
+			
             case INPUT_READ:
+				
                 rotary.current_cnt = read_rotary() / PULSE_DIFF_PER_CLICK;
 
                 if(is_rotary_turned_left(&rotary))
@@ -1460,8 +1474,10 @@ void main(void)
                 state = INPUT_WAIT;
 
                 break;
+			
             //********** AI自動移動フェーズ **********//
             case AI_MOVE:
+				
                 if(cursor.x < cursor.dest_x)
                 {
                     beep(C_SCALE[cursor.x], 100, game.is_buzzer_active);
@@ -1491,9 +1507,10 @@ void main(void)
 
                 wait_10ms(AI_MOVE_PERIOD_MS / 10);
                 break;
-
+			
             //********** コマ配置フェーズ **********//
             case PLACE_CHECK:
+				
                 if(game.is_skip)
                 {
                     // スキップの場合は配置せずにターン終了
@@ -1507,9 +1524,11 @@ void main(void)
                 {
                     state = PLACE_NG;
                 }
+				
                 break;
 
             case PLACE_OK:
+				
             	beep(DO2, 100, game.is_buzzer_active);
                 place(board, cursor.x, cursor.y, cursor.color);
                 flush_board(board);
@@ -1517,36 +1536,42 @@ void main(void)
                 break;
 
             case PLACE_NG:
+				
                 beep(DO0, 100, game.is_buzzer_active);
                 // プレイヤーの場合は入力待ちに戻る、AIの場合は理論上ここに来ない
                 state = (game.is_AI_turn) ? TURN_START : INPUT_WAIT;
                 break;
-
+			
             //********** コマ反転フェーズ **********//
             case FLIP_CALC:
+				
                 flip_dir_flag = make_flip_dir_flag(board, cursor.x, cursor.y, cursor.color);
                 state = FLIP_RUN;
                 break;
 
             case FLIP_RUN:
+				
                 flip_stones(flip_dir_flag, board, cursor.x, cursor.y, cursor.color);
                 flush_board(board);
                 state = TURN_SWITCH;
                 break;
-
+			
             //********** ターン終了フェーズ **********//
             case TURN_SWITCH:
+				
             	cursor.color = ((cursor.color == stone_red) ? stone_green : stone_red);
                 state = TURN_COUNT;
                 break;
 
             case TURN_COUNT:
+				
                 red.placeable_count   = count_placeable(board, stone_red);
                 green.placeable_count = count_placeable(board, stone_green);
                 state = TURN_JUDGE;
                 break;
 
             case TURN_JUDGE:
+				
                 if(is_game_over(red.placeable_count, green.placeable_count))
                 {
                     state = END_CALC;
@@ -1556,9 +1581,11 @@ void main(void)
                     game.is_skip = (cursor.color == stone_red) ? !red.placeable_count : !green.placeable_count;
                     state = TURN_SHOW;
                 }
+				
                 break;
 
             case TURN_SHOW:
+				
                 if(game.is_skip)
                 {
                     lcd_show_skip_msg();
@@ -1570,17 +1597,20 @@ void main(void)
 
                 //AIプレイヤーの切り替え
                 if(game.is_vs_AI) game.is_AI_turn ^= 1;
+				
                 state = TURN_START;
                 break;
-
+			
             //********** ゲーム終了フェーズ **********//
             case END_CALC:
+				
                 red.result   = count_stones(board, stone_red);
                 green.result = count_stones(board, stone_green);
                 state = END_SHOW;
                 break;
 
             case END_SHOW:
+				
                 lcd_clear();
                 lcd_puts("Winner is ...");
                 flush_lcd();
@@ -1590,24 +1620,27 @@ void main(void)
 
                 lcd_show_winner(red.result, green.result);
 
-                wait_10ms(300);
+                wait_10ms(300); //3秒間結果表示
 
                 lcd_show_confirm();
                 state = END_WAIT;
                 break;
 
             case END_WAIT:
+				
                 if(IRQ1_flag)
                 {
                     IRQ1_flag = 0;
                     state = END_RESET;
                 }
+				
                 break;
 
             case END_RESET:
+				
                 state = INIT_HW;
                 break;
-
+			
             default:
                 break;
         }
