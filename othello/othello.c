@@ -586,12 +586,12 @@ void set_cursor_color(enum stone_color sc)
 }
 
 //上下左右を指定してカーソルの座標を更新
-void move_cursor(int direction)
+void move_cursor(enum Direction dir)
 {
     int cx = cursor.x;
     int cy = cursor.y;
 
-    if (direction == LEFT)  //左
+    if (dir == LEFT)  //左
     {
         cx--; //左シフト
 
@@ -606,7 +606,7 @@ void move_cursor(int direction)
             }
         }
     }
-    else if (direction == RIGHT)  // 右
+    else if (dir == RIGHT)  // 右
     {
     	cx++; //右シフト
 
@@ -621,7 +621,7 @@ void move_cursor(int direction)
             }
         }
     }
-    else if (direction == UP) //上
+    else if (dir == UP) //上
     {
     	cy++; //上移動
 
@@ -636,7 +636,7 @@ void move_cursor(int direction)
 			}
 		}
     }
-    else if(direction == DOWN) //下
+    else if(dir == DOWN) //下
     {
     	cy--; //下移動
 
