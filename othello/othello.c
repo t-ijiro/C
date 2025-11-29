@@ -64,10 +64,11 @@
 //AIの先読みの回数
 #define AI_DEPTH 5
 
-//評価関数の重み定義
-#define POS_WEIGHT      7   // 位置評価の重み
-#define MOBILITY_WEIGHT 3   // 配置可能数の重み
-#define STABLE_WEIGHT   30  // 確定石の重み
+//評価関数の重み係数定義. どの要素をどれくらい重要視するか.
+//POS_WEIGHT + MOBILITY_WEIGHT = 10 になるようにする
+#define POS_WEIGHT      7   // 位置評価の重み係数
+#define MOBILITY_WEIGHT 3   // 配置可能数評価の重み計数
+#define STABLE_WEIGHT   30  // 確定石数（４つ角）評価の重み計数
 /********************************************************************************************/
 
 
@@ -79,7 +80,7 @@ static const int DXDY[8][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}, {-1, 1}, {-1, -
 //KEY = C majスケール
 static const unsigned int C_SCALE[MAT_HEIGHT] = {DO1, RE1, MI1, FA1, SO1, RA1, SI1, DO2};
 
-//盤面の重み計算. はじっこの方が重みが大きい.
+//盤面のスコア定義
 static const int POSITION_WEIGHTS[MAT_HEIGHT][MAT_WIDTH] = 
 {
     {120, -40,  20,  10,  10,  20, -40, 120},
@@ -196,16 +197,16 @@ static volatile unsigned long tc_IRQ;                                    //IRQ�
 static volatile unsigned char IRQ1_flag;                                 //IRQ1発生フラグ(sw7)
 static volatile unsigned int  beep_period_ms;                            //ブザーを鳴らす時間(1ms基準)
 static volatile enum          stone_color screen[MAT_HEIGHT][MAT_WIDTH]; //割り込みで描画に使用.
-static volatile struct   Game *Game_inst_ISR;                            //ISR用Gameインスタンス. IRQ0で使用.
+static volatile struct        Game *Game_inst_ISR;                       //ISR用Gameインスタンス. IRQ0で使用.
 static volatile struct        Cursor cursor;                             //Cursorインスタンス
 /*************************************************************************************/
 
 
 /************************************* AI推論用グローバル変数 *************************************/
-static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH]; //AIシミュレーションバッファ
-static int ai_entry_data[64 * 2];                      //座標候補
-static int ai_entry_idx[64];                           //ソートに対応させるための座標配列のインデックス
-static int ai_scores[64];                              //座標評価
+static enum stone_color ai_buf[MAT_HEIGHT][MAT_WIDTH];  //AIシミュレーションバッファ
+static int  ai_entry_data[64 * 2];                      //座標候補
+static int  ai_entry_idx[64];                           //ソートに対応させるための座標配列のインデックス
+static int  ai_scores[64];                              //座標評価
 /*************************************************************************************/
 
 
