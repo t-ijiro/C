@@ -10,7 +10,6 @@
 //  ビルド                                           　　　　　　                                                             
 //  ・以下の割り込み関数をintprg.c内でコメントアウトする
 //    Excep_CMT0_CMI0, Excep_CMT1_CMI1, Excep_CMT2_CMI2, Excep_ICU_IRQ0, Excep_ICU_IRQ1
-//
 //  ・stacksct.hのsuを0xFF0に変更する                                  　  
 //                                                                    　                                                      
 //  入力機能                                                       　　　                                                      
@@ -35,21 +34,20 @@
 #include "onkai.h"
 
 /************************************ マクロ *************************************************/
-//チャタリング除去
-#define CHATTERING_WAIT_MS 300
-
-//AIの移動速度
-#define AI_MOVE_PERIOD_MS 300
+#define MONITOR_CHATTERING_PERIOD_MS 300  //チャタリング監視周期. IRQ用.
+#define AI_MOVE_PERIOD_MS            300  //AIの移動周期
+#define LINE_UP_RESULT_PERIOD_MS     200  //結果表示でコマを並べる周期
+#define SHOW_RESULT_WAIT_MS          3000 //結果表示の時間
 
 //ロータリーエンコーダー
 #define PULSE_DIFF_PER_CLICK 4 //1クリックの位相計数
 #define UINT16T_MAX 65535      //MTU1.TCNTの最大値...符号なし16ビット
 
 // 74HC595シフトレジスタのシリアルデータ送信コマンド
-#define SERIAL_SINK    do { PORT1.PODR.BIT.B5 = 0; } while(0)                        // 吸い込み
-#define SERIAL_SOURCE  do { PORT1.PODR.BIT.B5 = 1; } while(0)                        // 吐き出し
-#define SEND_LATCH_CLK do { PORT1.PODR.BIT.B6 = 1; PORT1.PODR.BIT.B6 = 0; } while(0) // ラッチ
-#define LATCH_OUT      do { PORT1.PODR.BIT.B7 = 1; PORT1.PODR.BIT.B7 = 0; } while(0) // ラッチ出力
+#define SERIAL_SINK    do { PORT1.PODR.BIT.B5 = 0; } while(0)                        //吸い込み
+#define SERIAL_SOURCE  do { PORT1.PODR.BIT.B5 = 1; } while(0)                        //吐き出し
+#define SEND_LATCH_CLK do { PORT1.PODR.BIT.B6 = 1; PORT1.PODR.BIT.B6 = 0; } while(0) //ラッチ
+#define LATCH_OUT      do { PORT1.PODR.BIT.B7 = 1; PORT1.PODR.BIT.B7 = 0; } while(0) //ラッチ出力
 
 //マトリックスLED
 #define COL_EN PORTE.PODR.BYTE  //点灯列許可ビット選択
@@ -192,16 +190,16 @@ struct Game{
 	int is_skip;          //スキップか？
 };
 
-// 手の情報を保持する構造体. AI推論用
-typedef struct {
+//手の情報を保持する構造体. AI推論用
+struct Move{
     int x;
     int y;
     int score;
-} Move;
+};
 /****************************************************************************************/
 
 
-/************************************* 割り込み使用グローバル変数 *************************************/
+/************************************* 割り込み使用グローバル変数 ********************************************/
 static volatile unsigned long tc_1ms;                                    //1msタイマーカウンター
 static volatile unsigned long tc_2ms;                                    //2msタイマーカウンター
 static volatile unsigned long tc_10ms;                                   //10msタイマーカウンター
@@ -211,22 +209,22 @@ static volatile unsigned int  beep_period_ms;                            //ブ�
 static volatile enum          stone_color screen[MAT_HEIGHT][MAT_WIDTH]; //割り込みで描画に使用.
 static volatile struct        Game *Game_inst_ISR;                       //ISR用Gameインスタンス. IRQ0で使用.
 static volatile struct        Cursor cursor;                             //Cursorインスタンス
-/*************************************************************************************/
+/************************************************************************************************************/
 
 
-/************************************* AI推論用グローバル変数 *************************************/
+/************************************************** AI推論用グローバル変数 **************************************************/
 // グローバル静的バッファ
-static enum stone_color ai_buf[AI_DEPTH + 1][MAT_HEIGHT][MAT_WIDTH];  //深さごとのシミュレーションバッファ
-static int  ai_entry_data[64 * 2];                                    //座標候補
-static int  ai_entry_idx[64];                                         //ソートに対応させるための座標配列のインデックス
-static int  ai_scores[64];                                            //座標評価
-static Move ai_moves[AI_DEPTH][64];                                   //各深さでの候補手リスト
-static int ai_move_counts[AI_DEPTH];                                  //各深さでの候補手数
-/*************************************************************************************/
+static enum        stone_color ai_buf[AI_DEPTH + 1][MAT_HEIGHT][MAT_WIDTH];  //深さごとのシミュレーションバッファ
+static int         ai_entry_data[MAT_HEIGHT * MAT_WIDTH * 2];                //座標候補
+static int         ai_entry_idx[MAT_HEIGHT * MAT_WIDTH];                     //ソートに対応させるための座標配列のインデックス
+static int         ai_scores[MAT_HEIGHT * MAT_WIDTH];                        //座標評価
+static struct Move ai_moves[AI_DEPTH][MAT_HEIGHT * MAT_WIDTH];               //各深さでの候補手リスト
+static int         ai_move_counts[AI_DEPTH];                                 //各深さでの候補手数
+/***************************************************************************************************************************/
 
 
-/************************************** 関数定義 *****************************************/
-/********************************** ハードウェア初期化 ***********************************/
+/************************************************** 関数定義 **************************************************/
+/********************************************** ハードウェア初期化 *********************************************/
 void init_PORT(void)
 {
     PORTH.PDR.BIT.B0 = 0;
@@ -695,8 +693,8 @@ int is_out_of_board(int x, int y)
 }
 
 //8方向のひっくり返しフラグを作る
-//　      右下  右上  左下  左上  右    左   下   上
-//flag :  b7   b6   b5   b4   b3   b2   b1  b0
+//　      右下  右上  左下  左上  右   左   下   上
+//flag :  b7    b6    b5    b4  b3   b2   b1   b0
 //bit  :  0..その方角にひっくり返せない, 1..その方角にひっくり返せる
 unsigned char make_flip_dir_flag(enum stone_color brd[][MAT_WIDTH], int x, int y, enum stone_color sc)
 {
@@ -801,12 +799,6 @@ int count_placeable(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
     return count;
 }
 
-//どっちも置けなかったらおわり
-int is_game_over(int stone1_placeable_count, int stone2_placeable_count)
-{
-    return (!stone1_placeable_count && !stone2_placeable_count);
-}
-
 //指定した色のコマの数を数える
 int count_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
 {
@@ -825,6 +817,12 @@ int count_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color sc)
     }
 
     return count;
+}
+
+//どっちも置けなかったらおわり
+int is_game_over(int stone1_placeable_count, int stone2_placeable_count)
+{
+    return (!stone1_placeable_count && !stone2_placeable_count);
 }
 
 //コマを並べて結果発表
@@ -1064,12 +1062,14 @@ int minimax_alphabeta(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_col
                     {
                         if(score > stack_best_score[depth])
                             stack_best_score[depth] = score;
+						
                         if(stack_best_score[depth] >= stack_beta[depth])
                         {
                             score = stack_best_score[depth];
                             depth--;
                             continue;
                         }
+						
                         if(stack_best_score[depth] > stack_alpha[depth])
                             stack_alpha[depth] = stack_best_score[depth];
                     }
@@ -1077,14 +1077,17 @@ int minimax_alphabeta(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_col
                     {
                         if(score < stack_best_score[depth])
                             stack_best_score[depth] = score;
+						
                         if(stack_best_score[depth] <= stack_alpha[depth])
                         {
                             score = stack_best_score[depth];
                             depth--;
                             continue;
                         }
+						
                         if(stack_best_score[depth] < stack_beta[depth])
                             stack_beta[depth] = stack_best_score[depth];
+						
                     }
                     stack_move_idx[depth]++;
                 }
@@ -1125,12 +1128,14 @@ int minimax_alphabeta(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_col
                         {
                             if(score > stack_best_score[depth])
                                 stack_best_score[depth] = score;
+							
                         }
                         else
                         {
                             if(score < stack_best_score[depth])
                                 stack_best_score[depth] = score;
                         }
+						
                         stack_move_idx[depth]++;
                     }
                     continue;
@@ -1151,12 +1156,14 @@ int minimax_alphabeta(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_col
                     {
                         if(score > stack_best_score[depth])
                             stack_best_score[depth] = score;
+						
                         if(stack_best_score[depth] >= stack_beta[depth])
                         {
                             score = stack_best_score[depth];
                             depth--;
                             continue;
                         }
+						
                         if(stack_best_score[depth] > stack_alpha[depth])
                             stack_alpha[depth] = stack_best_score[depth];
                     }
@@ -1164,15 +1171,18 @@ int minimax_alphabeta(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_col
                     {
                         if(score < stack_best_score[depth])
                             stack_best_score[depth] = score;
+						
                         if(stack_best_score[depth] <= stack_alpha[depth])
                         {
                             score = stack_best_score[depth];
                             depth--;
                             continue;
                         }
-                        if(stack_best_score[depth] < stack_beta[depth])
-                            stack_beta[depth] = stack_best_score[depth];
+						
+                        if(stack_best_score[depth] < stack_beta[depth]) 
+							stack_beta[depth] = stack_best_score[depth];
                     }
+					
                     stack_move_idx[depth]++;
                 }
                 continue;
@@ -1185,8 +1195,7 @@ int minimax_alphabeta(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_col
             
             //手を打つ
             memcpy(ai_buf[depth + 1], ai_buf[depth], sizeof(enum stone_color) * MAT_HEIGHT * MAT_WIDTH);
-            flip_stones(make_flip_dir_flag(ai_buf[depth + 1], x, y, current_color), 
-                       ai_buf[depth + 1], x, y, current_color);
+            flip_stones(make_flip_dir_flag(ai_buf[depth + 1], x, y, current_color), ai_buf[depth + 1], x, y, current_color);
             
             //次の深さへ
             depth++;
@@ -1225,6 +1234,7 @@ void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, 
 
     //最高評価の手を見つける
     best_score = -INF;
+	
     for(i = 0; i < ai_move_counts[0]; i++)
     {
         if(ai_moves[0][i].score > best_score)
@@ -1235,6 +1245,7 @@ void set_AI_cursor_dest(enum stone_color brd[][MAT_WIDTH], enum stone_color sc, 
 
     //同じスコアの手の数をカウント
     best_count = 0;
+	
     for(i = 0; i < ai_move_counts[0]; i++)
     {
         if(ai_moves[0][i].score == best_score)
@@ -1404,7 +1415,7 @@ void Excep_ICU_IRQ0(void)
 	unsigned long now = tc_1ms;
 
 	//前のIRQ発生から指定時間経ってなかったらreturn
-	if(now - tc_IRQ < CHATTERING_WAIT_MS) return;
+	if(now - tc_IRQ < MONITOR_CHATTERING_PERIOD_MS) return;
 
     Game_inst_ISR->is_buzzer_active ^= 1;
 
@@ -1417,7 +1428,7 @@ void Excep_ICU_IRQ1(void)
 	unsigned long now = tc_1ms;
 
     //前のIRQ発生から指定時間経ってなかったらreturn
-	if(now - tc_IRQ < CHATTERING_WAIT_MS) return;
+	if(now - tc_IRQ < MONITOR_CHATTERING_PERIOD_MS) return;
 
     IRQ1_flag = 1;
 
@@ -1446,6 +1457,9 @@ void main(void)
     struct Rotary rotary;
 
     //コマ反転用フラグ
+	//　      右下  右上  左下  左上  右   左   下   上
+	//flag :  b7    b6    b5    b4  b3   b2   b1   b0
+	//bit  :  0..その方角にひっくり返せない, 1..その方角にひっくり返せる
     unsigned char flip_dir_flag;
 
     //経過時間計測スタート
@@ -1749,12 +1763,12 @@ void main(void)
                 lcd_puts("Winner is ...");
                 flush_lcd();
 
-                set_cursor_color(stone_black);        //0.2秒間隔でコマを詰める
-                line_up_result(board, red.result, green.result, 20, &game.is_buzzer_active); 
+                set_cursor_color(stone_black);        
+                line_up_result(board, red.result, green.result, LINE_UP_RESULT_PERIOD_MS / 10, &game.is_buzzer_active); 
 
                 lcd_show_winner(red.result, green.result);
 
-                wait_10ms(300); //3秒間結果表示
+                wait_10ms(SHOW_RESULT_WAIT_MS / 10); 
 
                 lcd_show_confirm();
                 state = END_WAIT;
