@@ -34,7 +34,7 @@
 #include "onkai.h"
 
 /************************************ マクロ *************************************************/
-// 周期、 時間
+// 時間、周期
 #define MONITOR_CHATTERING_PERIOD_MS 300  // チャタリング監視周期. IRQ用.
 #define CUESOR_BLINK_PERIOD_MS       150  // カーソルの点滅周期
 #define AI_MOVE_PERIOD_MS            300  // AIの移動周期
