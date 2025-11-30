@@ -1324,12 +1324,12 @@ void init_Cursor(int x, int y, enum stone_color sc)
 //LCD表示初期化
 void init_lcd_show(enum stone_color sc)
 {
-  lcd_clear();
-  lcd_xy(5, 1);
-  lcd_puts("othello");
-  lcd_xy(1, 2);
-  lcd_puts("VS >FRIEND : AI");
-  flush_lcd();
+	lcd_clear();
+	lcd_xy(5, 1);
+	lcd_puts("othello");
+	lcd_xy(1, 2);
+	lcd_puts("VS >FRIEND : AI");
+	flush_lcd();
 }
 /*************************************************************************************************/
 
@@ -1506,14 +1506,14 @@ void main(void)
 
                 if(IRQ1_flag)
                 {
-                          beep(DO2, 200, game.is_buzzer_active);
-                          lcd_show_whose_turn(cursor.color);
-                  state = TURN_START;
-                  IRQ1_flag = 0;
+                	beep(DO2, 200, game.is_buzzer_active);
+                    lcd_show_whose_turn(cursor.color);
+                    state = TURN_START;
+                    IRQ1_flag = 0;
                 }
                 else
                 {
-                  state = SELECT_VS;
+                	state = SELECT_VS;
                 }
                 
                 break;
@@ -1524,8 +1524,8 @@ void main(void)
 
 				if(rotary.current_cnt != rotary.prev_cnt)
 				{
-				  beep(DO3, 50, game.is_buzzer_active);
-			    game.is_vs_AI ^= 1;
+					beep(DO3, 50, game.is_buzzer_active);
+			   		game.is_vs_AI ^= 1;
                     
                     if(game.is_vs_AI)
 				    {
