@@ -216,10 +216,10 @@ static volatile struct        Cursor cursor;                             // Curs
 
 /************************************************** AI推論用グローバル変数 **************************************************/
 // グローバル静的バッファ
-static enum        stone_color ai_buf[AI_DEPTH + 1][MAT_HEIGHT][MAT_WIDTH];  // 深さごとのシミュレーションバッファ
-static int         ai_entry_idx[MAT_HEIGHT * MAT_WIDTH];                     // ソートに対応させるための座標配列のインデックス
-static struct Move ai_moves[AI_DEPTH][MAT_HEIGHT * MAT_WIDTH];               // 各深さでの候補手リスト
-static int         ai_move_counts[AI_DEPTH];                                 // 各深さでの候補手数
+static enum stone_color ai_buf[AI_DEPTH + 1][MAT_HEIGHT][MAT_WIDTH];  // 深さごとのシミュレーションバッファ
+static int              ai_entry_idx[MAT_HEIGHT * MAT_WIDTH];                     // ソートに対応させるための座標配列のインデックス
+static struct Move      ai_moves[AI_DEPTH][MAT_HEIGHT * MAT_WIDTH];               // 各深さでの候補手リスト
+static int              ai_move_counts[AI_DEPTH];                                 // 各深さでの候補手数
 /***************************************************************************************************************************/
 
 
