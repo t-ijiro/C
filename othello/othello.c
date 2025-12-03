@@ -10,7 +10,13 @@
 //  ビルド
 //  ・以下の割り込み関数をintprg.c内でコメントアウトする
 //    Excep_CMT0_CMI0, Excep_CMT1_CMI1, Excep_CMT2_CMI2, Excep_ICU_IRQ0, Excep_ICU_IRQ1
-//  ・stacksct.hのsuを0xFF0に変更する
+//
+//  ・stacksct.h のsuを0xFFF8に変更する
+//
+//  ・ AI VS AI を観たいときは
+//    1. init_Game関数の g->is_AI_turn を1にする
+//    2. case INIT_GAME の state = TURN_START; のコメントアウトを外し、state = SELECT_WAIT; をコメントアウトする
+//    3. 自動初期化して連続対戦させたいときはcase END_SHOW の state = INIT_HW; のコメントアウトを外し、state = END_WAIT; をコメントアウトする
 //
 //  入力機能
 //  ・ロータリーエンコーダー : カーソル移動
@@ -65,7 +71,7 @@
 #define MOVE_TYPE_UP_DOWN (PORTH.PIDR.BIT.B3 == 0) // 上下方向移動モード
 
 // AIの先読みの回数
-#define AI_DEPTH 3
+#define AI_DEPTH 4
 
 // 評価関数の重み係数定義. どの要素をどれくらい重要視するか.
 #define POS_WEIGHT      7   // 位置評価の重み係数
@@ -1301,9 +1307,9 @@ void init_Rotary(struct Rotary *r)
 void init_Game(struct Game *g)
 {
 	g->count_to_reset   = 0;
-	g->is_buzzer_active = 1;
+	g->is_buzzer_active = 1; // 0 にすると消音モード
 	g->is_vs_AI         = 0;
-	g->is_AI_turn       = 0;
+	g->is_AI_turn       = 1; // AI VS AI を観たいとき 1 観たくない時 0
 	g->is_skip          = 0;
 }
 
@@ -1338,10 +1344,10 @@ void init_board(enum stone_color brd[][MAT_WIDTH])
 }
 
 // カーソル初期化
-void init_Cursor(int x, int y, enum stone_color sc)
+void init_Cursor(void)
 {
-    set_cursor_color(sc);
-    set_cursor_xy(x, y);
+    set_cursor_color(stone_red);
+    set_cursor_xy(5, 3);
 }
 
 // LCD表示初期化
@@ -1470,7 +1476,7 @@ void main(void)
     struct Rotary rotary;
 
     // コマ反転用フラグ
-	//　       右下  右上  左下  左上  右   左   下   上
+	//　       右下  右上   左下   左上  右   左   下   上
 	// flag :  b7    b6    b5    b4  b3   b2   b1   b0
 	// bit  :  0..その方角にひっくり返せない, 1..その方角にひっくり返せる
     unsigned char flip_dir_flag;
@@ -1524,10 +1530,11 @@ void main(void)
                 init_Game(&game);
                 init_Player(&red, &green);
                 init_board(board);
-                init_Cursor(5, 3, stone_red);
+                init_Cursor();
                 init_lcd_show(cursor.color);
                 flush_board(board);
-                state = SELECT_WAIT;
+                //state = SELECT_WAIT; // AI VS AI を観たいときコメントアウトする
+                state = TURN_START;    // AI VS AI を観たいときコメントアウト外す
                 break;
 
             case SELECT_WAIT:
@@ -1583,7 +1590,7 @@ void main(void)
 
             case TURN_CHECK:
 
-                if(game.is_AI_turn && game.is_vs_AI)
+                if(game.is_AI_turn)
                 {
                     state = AI_THINK;
                 }
@@ -1785,7 +1792,9 @@ void main(void)
                 wait_10ms(SHOW_RESULT_WAIT_MS / 10);
 
                 lcd_show_confirm();
-                state = END_WAIT;
+
+                state = INIT_HW; // AI VS AI を自動初期化したいときコメントアウト外す
+                //state = END_WAIT;  // AI VS AI を自動初期化しないときコメントアウトする
                 break;
 
             case END_WAIT:
@@ -1805,6 +1814,7 @@ void main(void)
 
             default:
                 break;
+
         }
     }
 }
