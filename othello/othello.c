@@ -1794,7 +1794,7 @@ void main(void)
                 lcd_show_confirm();
 
                 state = INIT_HW; // AI VS AI を自動初期化したいときコメントアウト外す
-                //state = END_WAIT;  // AI VS AI を自動初期化しないときコメントアウトする
+                //state = END_WAIT; // AI VS AI を自動初期化したいときコメントアウトする
                 break;
 
             case END_WAIT:
