@@ -909,11 +909,11 @@ int evaluate_position_weight(enum stone_color brd[][MAT_WIDTH], enum stone_color
     {
         for(x = 0; x < MAT_WIDTH; x++)
         {
-            if(brd[y][x] == ai_color)
+            if(read_stone_at(brd, x, y) == ai_color)
             {
                 ai_score += POSITION_WEIGHTS[y][x];
             }
-            else if(brd[y][x] == opp_color)
+            else if(read_stone_at(brd, x, y) == opp_color)
             {
                 opp_score += POSITION_WEIGHTS[y][x];
             }
@@ -935,11 +935,11 @@ int evaluate_stone_count(enum stone_color brd[][MAT_WIDTH], enum stone_color ai_
     {
         for(x = 0; x < MAT_WIDTH; x++)
         {
-            if(brd[y][x] == ai_color)
+            if(read_stone_at(brd, x, y) == ai_color)
             {
                 ai_count++;
             }
-            else if(brd[y][x] == opp_color) 
+            else if(read_stone_at(brd, x, y) == opp_color)
             {
                 opp_count++;
             }
@@ -955,10 +955,10 @@ int count_stable_stones(enum stone_color brd[][MAT_WIDTH], enum stone_color colo
     int stable_count = 0;
 
     // 角のコマは確定石
-    if(brd[0][0] == color) stable_count++;
-    if(brd[0][MAT_WIDTH-1] == color) stable_count++;
-    if(brd[MAT_HEIGHT-1][0] == color) stable_count++;
-    if(brd[MAT_HEIGHT-1][MAT_WIDTH-1] == color) stable_count++;
+    if(read_stone_at(brd, 0,           0             ) == color) stable_count++;
+    if(read_stone_at(brd, MAT_WIDTH-1, 0             ) == color) stable_count++;
+    if(read_stone_at(brd, 0,           MAT_HEIGHT - 1) == color) stable_count++;
+    if(read_stone_at(brd, MAT_WIDTH-1, MAT_HEIGHT - 1) == color) stable_count++;
 
     return stable_count;
 }
