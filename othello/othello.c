@@ -1307,9 +1307,9 @@ void init_Rotary(struct Rotary *r)
 void init_Game(struct Game *g)
 {
 	g->count_to_reset   = 0;
-	g->is_buzzer_active = 1; // 0 にすると消音モード
+	g->is_buzzer_active = 1; 
 	g->is_vs_AI         = 0;
-	g->is_AI_turn       = 1; // AI VS AI を観たいとき 1 観たくない時 0
+	g->is_AI_turn       = 1; 
 	g->is_skip          = 0;
 }
 
@@ -1533,8 +1533,8 @@ void main(void)
                 init_Cursor();
                 init_lcd_show(cursor.color);
                 flush_board(board);
-                //state = SELECT_WAIT; // AI VS AI を観たいときコメントアウトする
-                state = TURN_START;    // AI VS AI を観たいときコメントアウト外す
+                //state = SELECT_WAIT; 
+                state = TURN_START;    
                 break;
 
             case SELECT_WAIT:
@@ -1793,8 +1793,8 @@ void main(void)
 
                 lcd_show_confirm();
 
-                state = INIT_HW; // AI VS AI を自動初期化したいときコメントアウト外す
-                //state = END_WAIT; // AI VS AI を自動初期化したいときコメントアウトする
+                state = INIT_HW; 
+                //state = END_WAIT; 
                 break;
 
             case END_WAIT:
