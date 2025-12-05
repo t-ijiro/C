@@ -113,6 +113,7 @@ enum State {
     INIT_HW,
     INIT_GAME,
 
+	// 対戦モード選択フェーズ
 	SELECT_VS,
 	SELECT_WAIT,
 
@@ -1536,7 +1537,7 @@ void main(void)
                 //state = SELECT_WAIT; 
                 state = TURN_START;    
                 break;
-
+            //********** 対戦モード選択フェーズ **********//
             case SELECT_WAIT:
 
                 if(IRQ1_flag)
