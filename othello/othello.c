@@ -800,9 +800,6 @@ void flip_stones(unsigned char flag, enum stone_color brd[][MAT_WIDTH], int x, i
                     break;
                 }
 
-                // コマを消す
-                delete(brd, x + dx, y + dy);
-
                 // 新しくコマを置く
                 place(brd, x + dx, y + dy, (search == stone_red) ? stone_green : stone_red);
             }
