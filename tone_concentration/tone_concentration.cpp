@@ -3,7 +3,6 @@
 #include <DFRobotDFPlayerMini.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include "myI2CLib.h"
 
 // ============================================================================
 // 定数定義
